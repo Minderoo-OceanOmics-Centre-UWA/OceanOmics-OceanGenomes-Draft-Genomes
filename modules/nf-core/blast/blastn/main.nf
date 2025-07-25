@@ -8,13 +8,14 @@ process BLAST_BLASTN {
         'community.wave.seqera.io/library/blast:2.16.0--540f4b669b0a0ddd' }"
 
     input:
-    tuple val(meta), val(assembly_name), path(fasta), val(gene_type), val(annotation_name)
-    path(curated_blast_db)
+    tuple val(meta), path(fasta), val(gene_type), val(annotation_name)
+    val(curated_blast_db)
     path(taxdb)
 
     output:
-    tuple val(meta), path("${assembly_name}lca/${prefix}.filtered.tsv"), val(gene_type), val(assembly_name), val(annotation_name), emit: filtered
-    tuple val(meta), path("${assembly_name}"), emit: blast
+    tuple val(meta), path("blast.${gene_type}.${annotation_name}.filtered.tsv"), val(gene_type), val(annotation_name), emit: filtered
+    tuple val(meta), path("blast.${gene_type}.${annotation_name}.filtered.tsv"), emit: validation
+    path "filtered_summary.${gene_type}.txt"   , emit: summary
     path "versions.yml"           , emit: versions
 
     when:
@@ -32,14 +33,19 @@ process BLAST_BLASTN {
         -db ${curated_blast_db} \\
         -query ${fasta} \\
         ${args} \\
-        -out lca/${prefix}.tsv
+        -out ${prefix}.tsv
 
     # Filter the results
-    awk -F '\t' '{if ((\$15 - \$14 > 200) && (\$7 > 98)) print}' lca/${prefix}.tsv > lca/${prefix}.filtered.tsv
+    awk -F '\t' '{if ((\$15 - \$14 > 200) && (\$7 > 98)) print}' ${prefix}.tsv > ${prefix}.filtered.tsv
+    
+    # Add in a column for the days date and the gene type
+    sed -i "s/\$/\\t\$(date +%y%m%d)/" ${prefix}.filtered.tsv
+    wait
+    sed -i "s/\$/\\t${gene_type}/" ${prefix}.filtered.tsv
 
-    # Creat file structure and move results
-    mkdir -p ${assembly_name}
-    mv lca ${assembly_name}/
+    # Create a summary for multiqc
+    awk -F '\t' '{combo[\$1"\t"\$4]++} END {print "Sample\tSpecies\tHits"; for (c in combo) print c, combo[c]}' ${prefix}.filtered.tsv > filtered_summary.${gene_type}.txt
+
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

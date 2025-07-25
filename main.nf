@@ -40,19 +40,21 @@ workflow OCEANGENOMES_DRAFTGENOMES {
 
     take:
     //samplesheet // channel: samplesheet read in from --input
-        run_id
-        bs_config
-        curated_blast_db
+        run_id // params.run
+        bs_config // params.bs_config
+        curated_blast_db // params.curated_blast_db
+        sql_config // params.sql_config
         
     main:
     
     ch_multiqc_files = Channel.empty()
+
     //
     // WORKFLOW: Run pipeline
     //
     DRAFTGENOMES (
         //samplesheet
-        run_id,
+        run_id, 
         bs_config
     )
 
@@ -61,14 +63,15 @@ workflow OCEANGENOMES_DRAFTGENOMES {
 
     MITOGENOMES (
         fastp_reads    = DRAFTGENOMES.out.fastp_reads,
-        organelle_type = "animal_mt",  // << pass it in here
+        organelle_type = "animal_mt"  // << pass it in here
     )
 
     println "MITOGENOMES emits: ${MITOGENOMES.out.mito_assembly}"
 
     MITOGENOME_ANNOTATION (
         mito_assembly   = MITOGENOMES.out.mito_assembly,
-        curated_blast_db
+        curated_blast_db,
+        sql_config // params.sql_config
     )
 
     // println "MITOGENOMES_ANNOTATION emits: ${MITOGENOMES_ANNOTATION.out.  }"
@@ -76,6 +79,16 @@ workflow OCEANGENOMES_DRAFTGENOMES {
     // MITOGENOME_QC (
 
     // )
+    // Collect all MultiQC files from all subworkflows
+    ch_multiqc_files = ch_multiqc_files.mix(DRAFTGENOMES.out.multiqc_files)
+    ch_multiqc_files = ch_multiqc_files.mix(MITOGENOMES.out.multiqc_files)
+    ch_multiqc_files = ch_multiqc_files.mix(MITOGENOME_ANNOTATION.out.multiqc_files)
+    
+    // Collect all versions
+    ch_collated_versions = Channel.empty()
+    ch_collated_versions = ch_collated_versions.mix(DRAFTGENOMES.out.versions)
+    ch_collated_versions = ch_collated_versions.mix(MITOGENOMES.out.versions)
+    ch_collated_versions = ch_collated_versions.mix(MITOGENOME_ANNOTATION.out.versions)
 
     //
     // MODULE: MultiQC
@@ -117,8 +130,8 @@ workflow OCEANGENOMES_DRAFTGENOMES {
         []
     )
     emit:
-    multiqc_report = MULTIQC.out.report.toList() // channel: /path/to/multiqc_report.html
- ///need to fix up the multiqc stuff   
+    multiqc_report = MULTIQC.out.report.toList() // channel: /path/to/multiqc_report.html 
+
 }
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -147,7 +160,8 @@ workflow {
     OCEANGENOMES_DRAFTGENOMES (
         params.run,
         params.bs_config,
-        params.curated_blast_db
+        params.curated_blast_db,
+        params.sql_config
     )
 
     //

@@ -3,16 +3,13 @@
     IMPORT MODULES / SUBWORKFLOWS / FUNCTIONS
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
-// MultiQC and helper functions
-include { MULTIQC                   } from '../../modules/nf-core/multiqc/main'
-include { paramsSummaryMap          } from 'plugin/nf-schema'
-include { paramsSummaryMultiqc      } from '../../subworkflows/nf-core/utils_nfcore_pipeline'
+// Helper functions
 include { softwareVersionsToYAML    } from '../../subworkflows/nf-core/utils_nfcore_pipeline'
-include { methodsDescriptionText    } from '../../subworkflows/local/utils_nfcore_oceangenomes_draftgenomes_pipeline'
 
 //mitogenome
 include { GETORGANELLE_CONFIG } from '../../modules/nf-core/getorganelle/config/main'
 include { GETORGANELLE_FROMREADS } from '../../modules/nf-core/getorganelle/fromreads/main'
+include { PUSH_MTDNA_ASSM_RESULTS } from '../../modules/local/upload_results/mtdna/main'
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -23,7 +20,7 @@ include { GETORGANELLE_FROMREADS } from '../../modules/nf-core/getorganelle/from
 workflow MITOGENOMES {
 
     take:
-    fastp_reads
+    fastp_reads // tuple val(meta), path(fastq)
     organelle_type
     
     main:
@@ -50,11 +47,29 @@ workflow MITOGENOMES {
         return matcher ? matcher[0][1].replaceAll(/["']/, '') : "unknown"
     }
 
+    // Could maybe add in a function to make the assembly name to pass into getorganelle so i dont have to make it in the module
+
+    
     combined_input = fastp_reads.combine(GETORGANELLE_CONFIG.out.db).combine(version_ch)
 
     GETORGANELLE_FROMREADS (
         combined_input // tuple val(meta), path(fastq), val(organelle_type), path(db), val(version)  // getOrganelle has a database and config file
     )
+
+    log_ch = GETORGANELLE_FROMREADS.out.fasta.join(GETORGANELLE_FROMREADS.out.log)
+        .map { meta, fasta, log -> 
+            def assembly_prefix = fasta.baseName
+            [meta, fasta, log, assembly_prefix] }
+
+    PUSH_MTDNA_ASSM_RESULTS (
+        log_ch,
+        params.sql_config
+    )
+
+    // Collect MultiQC files
+    ch_multiqc_files = ch_multiqc_files.mix(GETORGANELLE_FROMREADS.out.etc.collect{it[1]})
+    ch_versions = ch_versions.mix(GETORGANELLE_CONFIG.out.versions.first())
+    ch_versions = ch_versions.mix(GETORGANELLE_FROMREADS.out.versions.first())
 
 
     //
@@ -69,51 +84,12 @@ workflow MITOGENOMES {
         ).set { ch_collated_versions }
 
 
-    //
-    // MODULE: MultiQC
-    //
-    ch_multiqc_config        = Channel.fromPath(
-        "$projectDir/assets/multiqc_config.yml", checkIfExists: true)
-    ch_multiqc_custom_config = params.multiqc_config ?
-        Channel.fromPath(params.multiqc_config, checkIfExists: true) :
-        Channel.empty()
-    ch_multiqc_logo          = params.multiqc_logo ?
-        Channel.fromPath(params.multiqc_logo, checkIfExists: true) :
-        Channel.empty()
 
-    summary_params      = paramsSummaryMap(
-        workflow, parameters_schema: "nextflow_schema.json")
-    ch_workflow_summary = Channel.value(paramsSummaryMultiqc(summary_params))
-    ch_multiqc_files = ch_multiqc_files.mix(
-        ch_workflow_summary.collectFile(name: 'workflow_summary_mqc.yaml'))
-    ch_multiqc_custom_methods_description = params.multiqc_methods_description ?
-        file(params.multiqc_methods_description, checkIfExists: true) :
-        file("$projectDir/assets/methods_description_template.yml", checkIfExists: true)
-    ch_methods_description                = Channel.value(
-        methodsDescriptionText(ch_multiqc_custom_methods_description))
-
-    ch_multiqc_files = ch_multiqc_files.mix(ch_collated_versions)
-    ch_multiqc_files = ch_multiqc_files.mix(
-        ch_methods_description.collectFile(
-            name: 'methods_description_mqc.yaml',
-            sort: true
-        )
-    )
-
-    MULTIQC (
-        ch_multiqc_files.collect(),
-        ch_multiqc_config.toList(),
-        ch_multiqc_custom_config.toList(),
-        ch_multiqc_logo.toList(),
-        [],
-        []
-    )
 
     emit:
     mito_assembly = GETORGANELLE_FROMREADS.out.fasta
-    multiqc_report = MULTIQC.out.report.toList() // channel: /path/to/multiqc_report.html
-    versions       = ch_versions                 // channel: [ path(versions.yml) ]
-
+    multiqc_files = ch_multiqc_files             // channel: [ path(multiqc_files) ]
+    versions = ch_collated_versions              // channel: [ path(versions.yml) ]
 
 
 }

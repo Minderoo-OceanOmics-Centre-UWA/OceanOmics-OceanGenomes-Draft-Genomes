@@ -16,8 +16,9 @@ process GETORGANELLE_FROMREADS {
     tuple val(meta), path(fastq), val(organelle_type), path(db), val(version)  // getOrganelle has a database and config file
 
     output:
-    tuple val(meta), path("mtdna/${prefix}.fasta"), emit: fasta, optional: true
-    tuple val(meta), path("mtdna/*")                                     , emit: etc // the rest of the result files
+    tuple val(meta), path("mtdna/${meta.id}.ilmn.${meta.date}.getorg${version.replaceAll('\\.', '')}.fasta"), emit: fasta
+    tuple val(meta), path("mtdna/*get_org.log.txt")     , emit: log
+    path("mtdna/*")                                     , emit: etc // the rest of the result files
     path "versions.yml"                                                  , emit: versions
 
     when:

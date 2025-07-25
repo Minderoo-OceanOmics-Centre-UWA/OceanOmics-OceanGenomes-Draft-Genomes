@@ -1,4 +1,4 @@
-process SPECIES_VALIDATION {
+process PUSH_LCA_BLAST_RESULTS {
     tag "$meta.id"
     label 'process_medium'
     container "${ workflow.containerEngine == 'singularity' && !task.ext.singularity_pull_docker_container ?
@@ -6,20 +6,24 @@ process SPECIES_VALIDATION {
         'tylerpeirce/psycopg2:0.1' }"
 
     input:
-    tuple val(meta), path(blast_files), path(lca_files)
+    tuple path (lca_results), path (blast_results)
     path config
 
     output:
-    path "lca_results.${meta.id}.tsv", emit: summary
-    tuple path ("lca_combined.${meta.id}.tsv"), path ("blast_combined.${meta.id}.txt"), emit: full
+    path "${meta.id}.lca_blast.upload.txt", emit: upload
 
     script:
     """
-    species_validation.py \\
+    # Push the results to SQL database
+    push_emma_annotation_results.py \\
         $config \\
         ${meta.id} \\
-        "${lca_files.join(',')}" \\
-        "${blast_files.join(',')}"
+        ${lca_results} \\
+        ${blast_results} \\
+        > ${meta.id}.lca_blast.upload.txt
 
     """
     }
+
+
+    

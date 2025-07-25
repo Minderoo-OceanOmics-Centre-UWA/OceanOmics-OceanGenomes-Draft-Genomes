@@ -12,13 +12,11 @@ include { EMMA } from '../../modules/local/EMMA/main'
 include { BLAST_BLASTN } from '../../modules/nf-core/blast/blastn/main'
 // include { BLAST_BLASTP } from '../../modules/nf-core/blast/blastp/main'
 include { LCA } from '../../modules/local/LCA/main'
-
-// MultiQC and helper functions
-include { MULTIQC                   } from '../../modules/nf-core/multiqc/main'
-include { paramsSummaryMap          } from 'plugin/nf-schema'
-include { paramsSummaryMultiqc      } from '../../subworkflows/nf-core/utils_nfcore_pipeline'
+include { SPECIES_VALIDATION } from '../../modules/local/species_validation/main'
+include { PUSH_MTDNA_ASSM_RESULTS } from '../../modules/local/upload_results/emma/main'
+include { PUSH_LCA_BLAST_RESULTS } from '../../modules/local/upload_results/lca/main'
+// Helper functions
 include { softwareVersionsToYAML    } from '../../subworkflows/nf-core/utils_nfcore_pipeline'
-include { methodsDescriptionText    } from '../../subworkflows/local/utils_nfcore_oceangenomes_draftgenomes_pipeline'
 
 
 /*
@@ -31,7 +29,8 @@ workflow MITOGENOME_ANNOTATION {
 
     take:
     mito_assembly //  tuple val(meta), path(fasta)
-    curated_blast_db
+    curated_blast_db // params.curated_blast_db
+    sql_config // params.sql_config
     
     main:
 
@@ -42,12 +41,13 @@ workflow MITOGENOME_ANNOTATION {
     DOWNLOAD_BLAST_DB(Channel.value("taxdb"))
     // Download taxonkit database
     DOWNLOAD_TAXONKIT_DB(Channel.value("taxdump"))
-
-    // Extracts the assembly name from the fasta file and creates new tuple
-    fasta_with_assembly_prefix = mito_assembly 
+    
+    // Extracts the assembly name from the fasta file and embeds it into the meta map
+    fasta_with_assembly_prefix = mito_assembly
         .map { meta, fasta ->
-            def assembly_prefix = fasta.baseName  // Gets "OG898.ilmn.250131.getorg1770"
-            [meta, fasta, assembly_prefix]
+            def assembly_prefix = fasta.baseName
+            def meta_ext = meta + [ assembly_prefix: assembly_prefix ]
+            [meta_ext, fasta]
         }
 
 /*
@@ -60,7 +60,7 @@ workflow MITOGENOME_ANNOTATION {
         fasta_with_assembly_prefix // tuple val(meta), path(fasta), val(assembly_prefix)
     )
 
-    // // Function to extract assembly name // This i can do within the process using fast.getbasename()
+    // // Function to extract assembly name
     def getAnnotationName = { filename ->
         def name = filename.toString().replaceAll(/\.fa$/, '')
         def parts = name.split('\\.', 2)
@@ -69,18 +69,18 @@ workflow MITOGENOME_ANNOTATION {
 
     // Use mix() to process Co1, 12s and 16s sequences through blast
     combined_sequences = EMMA.out.co1_sequences
-        .map { meta, assembly_prefix, files -> 
-            def annotationName = getAnnotationName(files.name)
-            [meta, assembly_prefix, files, 'CO1', annotationName] 
+        .map { meta, file -> 
+            def annotation_name = getAnnotationName(file.name)
+            [meta, file, 'CO1', annotation_name] 
         }
         .mix(
-            EMMA.out.s12_sequences.map { meta, assembly_prefix, files -> 
-                def annotationName = getAnnotationName(files.name)
-                [meta, assembly_prefix, files, '12s', annotationName] 
+            EMMA.out.s12_sequences.map { meta, file -> 
+                def annotation_name = getAnnotationName(file.name)
+                [meta, file, '12s', annotation_name] 
             },
-            EMMA.out.s16_sequences.map { meta, assembly_prefix, files -> 
-                def annotationName = getAnnotationName(files.name)
-                [meta, assembly_prefix, files, '16s', annotationName] 
+            EMMA.out.s16_sequences.map { meta, file -> 
+                def annotation_name = getAnnotationName(file.name)
+                [meta, file, '16s', annotation_name] 
             }
         )
 /*
@@ -90,15 +90,59 @@ workflow MITOGENOME_ANNOTATION {
 */
 
     BLAST_BLASTN (
-        combined_sequences, // tuple val(meta), val(assembly_name), path(fasta), val(gene_type), val(annotation_name)
+        combined_sequences, // tuple val(meta), path(fasta), val(gene_type), val(annotation_name)
         curated_blast_db,
         DOWNLOAD_BLAST_DB.out.db_files // path(db)
     )
 
     LCA (
-        BLAST_BLASTN.out.filtered, // tuple val(meta), path(blast_filtered), val(gene_type), val(assembly_name), val(annotation_name)
+        BLAST_BLASTN.out.filtered, // tuple val(meta), path(blast_filtered), val(gene_type), val(annotation_name)
         DOWNLOAD_TAXONKIT_DB.out.db_files // path(db)
     )
+
+/*
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    Check the LCA results against nominal species ID and push results to SQL db
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+*/
+
+    grouped_lca = LCA.out.lca
+        .groupTuple(by: 0, size: 3)
+        .map { tuple ->
+            def meta = tuple[0]
+            def files = tuple[1..-1].flatten()
+            [meta, files]
+        }
+
+    grouped_blast = BLAST_BLASTN.out.validation
+        .groupTuple(by: 0, size: 3)
+        .map { tuple ->
+            def meta = tuple[0]
+            def files = tuple[1..-1].flatten()
+            [meta, files]
+        }
+    
+    grouped_blast_lca = grouped_blast.join(grouped_lca)
+    
+    SPECIES_VALIDATION (
+        grouped_blast_lca, // tuple val(meta), path(blast_filtered), path(lca_filtered)
+        sql_config
+    )
+
+    PUSH_MTDNA_ASSM_RESULTS (
+        EMMA.out.results, // tuple val(meta), path("emma/*")
+        sql_config
+    )
+
+    PUSH_LCA_BLAST_RESULTS (
+        SPECIES_VALIDATION.out.full, // tuple path ("lca_combined.${meta.id}.tsv"), path ("blast_combined.${meta.id}.txt"),
+        sql_config
+    )
+    // Collect MultiQC files
+    ch_multiqc_files = ch_multiqc_files.mix(BLAST_BLASTN.out.summary.collect{it[1]})
+    ch_versions = ch_versions.mix(EMMA.out.versions.first())
+    ch_versions = ch_versions.mix(BLAST_BLASTN.out.versions.first())
+    ch_versions = ch_versions.mix(LCA.out.versions.first())
 
 
 
@@ -114,49 +158,10 @@ workflow MITOGENOME_ANNOTATION {
         ).set { ch_collated_versions }
 
 
-    // //
-    // // MODULE: MultiQC
-    // //
-    ch_multiqc_config        = Channel.fromPath(
-        "$projectDir/assets/multiqc_config.yml", checkIfExists: true)
-    ch_multiqc_custom_config = params.multiqc_config ?
-        Channel.fromPath(params.multiqc_config, checkIfExists: true) :
-        Channel.empty()
-    ch_multiqc_logo          = params.multiqc_logo ?
-        Channel.fromPath(params.multiqc_logo, checkIfExists: true) :
-        Channel.empty()
-
-    summary_params      = paramsSummaryMap(
-        workflow, parameters_schema: "nextflow_schema.json")
-    ch_workflow_summary = Channel.value(paramsSummaryMultiqc(summary_params))
-    ch_multiqc_files = ch_multiqc_files.mix(
-        ch_workflow_summary.collectFile(name: 'workflow_summary_mqc.yaml'))
-    ch_multiqc_custom_methods_description = params.multiqc_methods_description ?
-        file(params.multiqc_methods_description, checkIfExists: true) :
-        file("$projectDir/assets/methods_description_template.yml", checkIfExists: true)
-    ch_methods_description                = Channel.value(
-        methodsDescriptionText(ch_multiqc_custom_methods_description))
-
-    ch_multiqc_files = ch_multiqc_files.mix(ch_collated_versions)
-    ch_multiqc_files = ch_multiqc_files.mix(
-        ch_methods_description.collectFile(
-            name: 'methods_description_mqc.yaml',
-            sort: true
-        )
-    )
-
-    MULTIQC (
-        ch_multiqc_files.collect(),
-        ch_multiqc_config.toList(),
-        ch_multiqc_custom_config.toList(),
-        ch_multiqc_logo.toList(),
-        [],
-        []
-    )
 
     emit:
-    multiqc_report = MULTIQC.out.report.toList() // channel: /path/to/multiqc_report.html
-    versions       = ch_versions                 // channel: [ path(versions.yml) ]
+    multiqc_files = ch_multiqc_files             // channel: [ path(multiqc_files) ]
+    versions = ch_collated_versions              // channel: [ path(versions.yml) ]
   
 
 
