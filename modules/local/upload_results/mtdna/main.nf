@@ -6,7 +6,7 @@ process PUSH_MTDNA_ASSM_RESULTS {
         'tylerpeirce/psycopg2:0.1' }"
 
     input:
-    tuple val(meta), path(fasta), path(log), val(assembly_prefix) 
+    tuple val(meta), path(fasta), path(log)
     path config
 
     output:
@@ -16,7 +16,7 @@ process PUSH_MTDNA_ASSM_RESULTS {
     """
     push_mtdna_assm_results.py \\
         $config \\
-        $assembly_prefix \\
+        ${meta.assembly_prefix} \\
         $log \\
         $fasta\\
         > ${meta.id}.mtdna.upload.txt

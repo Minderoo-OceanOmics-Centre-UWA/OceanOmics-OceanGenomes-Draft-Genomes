@@ -2,31 +2,26 @@ process GETORGANELLE_FROMREADS {
     tag "$meta.id"
     label 'process_high'
 
-    publishDir = [
-        path: { "${params.outdir}/mitogenomes/${meta.id}/${meta.id}.ilmn.${meta.date}.getorg${version.replaceAll('\\.', '')}" },
-        mode: params.publish_dir_mode
-    ]
-
     conda "bioconda::getorganelle=1.7.7.0"
     container "${ workflow.containerEngine == 'singularity' && !task.ext.singularity_pull_docker_container ?
         'https://depot.galaxyproject.org/singularity/getorganelle:1.7.7.0--pyh7cba7a3_0':
         'biocontainers/getorganelle:1.7.7.0--pyh7cba7a3_0' }"
 
     input:
-    tuple val(meta), path(fastq), val(organelle_type), path(db), val(version)  // getOrganelle has a database and config file
+    tuple val(meta), path(fastp), val(organelle_type), path(db)
 
     output:
-    tuple val(meta), path("mtdna/${meta.id}.ilmn.${meta.date}.getorg${version.replaceAll('\\.', '')}.fasta"), emit: fasta
-    tuple val(meta), path("mtdna/*get_org.log.txt")     , emit: log
-    path("mtdna/*")                                     , emit: etc // the rest of the result files
-    path "versions.yml"                                                  , emit: versions
+    tuple val(meta), path("mtdna/${meta.mt_assembly_prefix}.fasta")            , emit: fasta
+    tuple val(meta), path("mtdna/${meta.mt_assembly_prefix}.get_org.log.txt")  , emit: log
+    path("mtdna/*")                                                         , emit: etc // could alter this to just move the files we want, but then you need to go back into workdir for others
+    path "versions.yml"                                                     , emit: versions
 
     when:
     task.ext.when == null || task.ext.when
 
     script:
     def args   = task.ext.args ?: ''
-    def prefix = task.ext.prefix ?: "${meta.id}.ilmn.${meta.date}.getorg${version.replaceAll('\\.', '')}"
+    def prefix = task.ext.prefix ?: "${meta.mt_assembly_prefix}"
 
     """
     get_organelle_from_reads.py \\
@@ -53,7 +48,7 @@ process GETORGANELLE_FROMREADS {
 
     stub:
     def args = task.ext.args ?: ''
-    def base_prefix = task.ext.prefix ?: "${meta.id}.ilmn.${meta.date}.getorg${version.replaceAll('\\.', '')}"
+    def base_prefix = task.ext.prefix ?: "${meta.mt_assembly_prefix}"
     """
     mkdir -p mtdna
        

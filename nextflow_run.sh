@@ -14,5 +14,15 @@ nextflow run main.nf \
     --binddir /scratch \
     --tempdir /scratch/pawsey0964/tpeirce/tmp \
     --refresh-modules \
+    --skip_download_reads = false \
+    --skip_fastp = false \
+    --skip_genome_assembly = false \
+    --skip_genome_decontamination = false \
+    --skip_genome_qc = false \
+    --skip_mitogenome_assembly = false \
+    --skip_mitogenome_annotation = false \
+    --skip_upload_results = false \
+    
+   
     #--input assets/samplesheet.csv \  # include a samplesheet if you are not downloading sample.
     

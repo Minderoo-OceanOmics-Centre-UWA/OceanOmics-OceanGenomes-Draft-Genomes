@@ -110,6 +110,53 @@
                         "git_sha": "81880787133db07d9b4c1febd152c090eb8325dc",
                         "installed_by": ["modules"]
                     }
+                },
+                "local": {
+                    "basespace": {
+                        "branch": "master",
+                        "git_sha": "",
+                        "installed_by": ["local"]
+                    },
+                    "download_blast_db": {
+                        "branch": "master",
+                        "git_sha": "",
+                        "installed_by": ["local"]
+                    },
+                    "download_taxonkit_db": {
+                        "branch": "master",
+                        "git_sha": "",
+                        "installed_by": ["local"]
+                    },
+                    "EMMA": {
+                        "branch": "master",
+                        "git_sha": "",
+                        "installed_by": ["local"]
+                    },
+                    "LCA": {
+                        "branch": "master",
+                        "git_sha": "",
+                        "installed_by": ["local"]
+                    },
+                    "species_validation": {
+                        "branch": "master",
+                        "git_sha": "",
+                        "installed_by": ["local"]
+                    },
+                    "upload_results/emma": {
+                        "branch": "master",
+                        "git_sha": "",
+                        "installed_by": ["local"]
+                    },
+                    "upload_results/lca": {
+                        "branch": "master",
+                        "git_sha": "",
+                        "installed_by": ["local"]
+                    },
+                    "upload_results/mtdna": {
+                        "branch": "master",
+                        "git_sha": "",
+                        "installed_by": ["local"]
+                    },
                 }
             },
             "subworkflows": {
@@ -129,6 +176,53 @@
                         "git_sha": "2fd2cd6d0e7b273747f32e465fdc6bcc3ae0814e",
                         "installed_by": ["subworkflows"]
                     }
+                },
+                "local": {
+                    "download": {
+                        "branch": "master",
+                        "git_sha": "",
+                        "installed_by": ["local"]
+                    },
+                    "fastqc": {
+                        "branch": "master",
+                        "git_sha": "",
+                        "installed_by": ["local"]
+                    },
+                    "genome_assembly": {
+                        "branch": "master",
+                        "git_sha": "",
+                        "installed_by": ["local"]
+                    },
+                    "genome_decontamination": {
+                        "branch": "master",
+                        "git_sha": "",
+                        "installed_by": ["local"]
+                    },
+                    "genome_qc": {
+                        "branch": "master",
+                        "git_sha": "",
+                        "installed_by": ["local"]
+                    },
+                    "mitogenome_annotation_lca": {
+                        "branch": "master",
+                        "git_sha": "",
+                        "installed_by": ["local"]
+                    },
+                    "mitogenome_assembly/getorganelle": {
+                        "branch": "master",
+                        "git_sha": "",
+                        "installed_by": ["local"]
+                    },
+                    "samplesheetHybrid": {
+                        "branch": "master",
+                        "git_sha": "",
+                        "installed_by": ["local"]
+                    },
+                    "utils_nfcore_oceangenomes_draftgenomes_pipeline": {
+                        "branch": "master",
+                        "git_sha": "",
+                        "installed_by": ["local"]
+                    },
                 }
             }
         }

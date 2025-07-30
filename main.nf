@@ -16,8 +16,8 @@
 */
 
 include { DRAFTGENOMES  } from './workflows/draftgenomes'
-include { MITOGENOMES  } from './subworkflows/local/oceangenomes_mitogenomes'
-include { MITOGENOME_ANNOTATION  } from './subworkflows/local/oceangenomes_mitogenome_annotation_LCA'
+include { MITOGENOME_ASSEMBLY  } from './subworkflows/local/mitogenome_assembly/getorganelle'
+include { MITOGENOME_ANNOTATION  } from './subworkflows/local/mitogenome_annotation_lca'
 include { PIPELINE_INITIALISATION } from './subworkflows/local/utils_nfcore_oceangenomes_draftgenomes_pipeline'
 include { PIPELINE_COMPLETION     } from './subworkflows/local/utils_nfcore_oceangenomes_draftgenomes_pipeline'
 
@@ -52,30 +52,137 @@ workflow OCEANGENOMES_DRAFTGENOMES {
     //
     // WORKFLOW: Run pipeline
     //
-    DRAFTGENOMES (
-        //samplesheet
-        run_id, 
-        bs_config
-    )
+    if (!params.skip_download_reads) {
+        DOWNLOAD_READS(
+            run_id, 
+            bs_config
+        )
+    }
+// if i am providing path to precomputed results i need code to re make meta and tuples
+// meta is just: 
+//  id = og_id
+//  run = params.run - maybe this can be determined from file name if passing in info as may not be running all from the same run
+//  date = parames.date - or as above, pull from file name
+//  prefix = ${meta.id}.ilmn.${run}
 
-    println "DRAFTGENOMES emits: ${DRAFTGENOMES.out.fastp_reads}"
+    //
+    // FASTP
+    //
+    if (!params.skip_fastp) {
+        FASTP (
+            samplesheet_ch
+        )
+        ch_fastp_results = 
+    } else if (params.precomputed_fastp_results) {
+        // Use precomputed results if analysis is skipped
+        ch_fastp_results = Channel.fromPath(params.precomputed_fastp_results)
+    } else {
+        ch_fastp_results = Channel.empty()
+    }
+    
+    //
+    // GENOME_ASSEMBLY
+    //
+    if (!params.skip_genome_assembly) {
+        GENOME_ASSEMBLY (
+
+        )
+        ch_genome_assembly_results = 
+    } else if (params.precomputed_genome_assembly_results) {
+        // Use precomputed results if analysis is skipped
+        ch_genome_assembly_results = Channel.fromPath(params.precomputed_genome_assembly_results)
+    } else {
+        ch_genome_assembly_results = Channel.empty()
+    }
+
+    // GENOME_DECONTAMINATION
+    if (!params.skip_genome_decontamination) {
+        GENOME_DECONTAMINATION (
+
+        )
+        ch_genome_decontamination_results = 
+    } else if (params.precomputed_genome_decontamination_results) {
+        // Use precomputed results if analysis is skipped
+        ch_genome_decontamination_results = Channel.fromPath(params.precomputed_genome_decontamination_results
+    } else {
+        ch_genome_decontamination_results = Channel.empty()
+    }
+
+    //
+    // GENOME_QC
+    //
+    if (!params.skip_genome_qc) {
+        GENOME_QC (
+
+        )
+        ch_genome_qc_results = // not sure if there is output from this one that will go anywhere, actually mauybe data upload
+    } else if (params.precomputed_genome_qc_results) {
+        // Use precomputed results if analysis is skipped
+        ch_genome_qc_results = Channel.fromPath(params.precomputed_genome_qc_results)
+    } else {
+        ch_genome_qc_results = Channel.empty()
+    }
+
+    //
+    // MITOGENOME_ASSEMBLY
+    //
+    if (!params.skip_upload_results) {
+        MITOGENOME_ASSEMBLY (
+            ch_fastp_results,
+            organelle_type = "animal_mt"  // << pass it in here
+        )
+        ch_mitogenome_assembly_results = 
+    } else if (params.precomputed_mitogenome_assembly_results) {
+        // Use precomputed results if analysis is skipped
+        ch_mitogenome_assembly_results = Channel.fromPath(params.precomputed_mitogenome_assembly_results)
+    } else {
+        ch_mitogenome_assembly_results = Channel.empty()
+    }
+
+    //
+    // MITOGENOME_ANNOTATION
+    //
+    if (!params.skip_upload_results) {
+        MITOGENOME_ANNOTATION (
+            ch_mitogenome_assembly_results,
+            curated_blast_db,
+            sql_config // params.sql_config
+        )
+        ch_mitogenome_annotation_results = MITOGENOME_ANNOTATION.out.annotation_results
+        ch_mitogenome_blast_results = MITOGENOME_ANNOTATION.out.blast_filtered_results
+        ch_mitogenome_lca_results = MITOGENOME_ANNOTATION.out.lca_results
+    } else if (params.precomputed_mitogenome_annotation_results) {
+        // Use precomputed results if analysis is skipped
+        ch_mitogenome_annotation_results = Channel.fromPath(params.precomputed_mitogenome_annotation_results)
+        ch_mitogenome_blast_results = Channel.fromPath(params.precomputed_mitogenome_blast_results)
+        ch_mitogenome_lca_results = Channel.fromPath(params.precomputed_mitogenome_lca_results)
+    } else {
+        ch_mitogenome_annotation_results = Channel.empty()
+        ch_mitogenome_blast_results = Channel.empty()
+        ch_mitogenome_lca_results = Channel.empty()
+    }
+
+    //
+    // UPLOAD_RESULTS
+    //
+    // Conditional uploading of results to SQL and species check - only run if not skipped
+    // All these processes access the OceanOmics PostgreSQL database.
+    if (!params.skip_upload_results) {
+        UPLOAD_RESULTS (
+            assembly_results        = MITOGENOME_ASSEMBLY.out.assembly_results
+            annotation_results      = MITOGENOME_ANNOTATION.out.annotation_results
+            blast_filtered_results  = MITOGENOME_ANNOTATION.out.blast_filtered_results
+            lca_results             = MITOGENOME_ANNOTATION.out.lca_results
+            sql_config // params.sql_config
+        )
+    }
 
 
-    MITOGENOMES (
-        fastp_reads    = DRAFTGENOMES.out.fastp_reads,
-        organelle_type = "animal_mt"  // << pass it in here
-    )
-
-    println "MITOGENOMES emits: ${MITOGENOMES.out.mito_assembly}"
-
-    MITOGENOME_ANNOTATION (
-        mito_assembly   = MITOGENOMES.out.mito_assembly,
-        curated_blast_db,
-        sql_config // params.sql_config
-    )
-
-    // println "MITOGENOMES_ANNOTATION emits: ${MITOGENOMES_ANNOTATION.out.  }"
-
+    // If the LCA validation is correct, then run the QC to prepare for submission to GenBank
+    // Need to add this into the pipeline.
+    // Now that protein lengths are being added to the database it could provide a list of 
+    // non submitted mitogenomes they can be grouped with to submit and then say when there is a 
+    // group of similar mitogenomes they can be submitted as a batch.
     // MITOGENOME_QC (
 
     // )

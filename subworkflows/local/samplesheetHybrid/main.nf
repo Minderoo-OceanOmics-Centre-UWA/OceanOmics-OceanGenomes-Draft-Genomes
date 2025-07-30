@@ -15,7 +15,10 @@ workflow samplesheetHybrid {
 
     main:
     ch_samplesheet = Channel.empty()  // ✅ Safe placeholder declaration
-
+    
+    // If providing an sample sheet as csv format it requires the following format: sample,run,R1,R2
+    // alternatively you can also provide the date of the sequencing run if your format isnt XXX_$DATE_XXX: sample,run,date,R1,R2
+    // R1 and R2 are the file paths to R1 and R2
     if (params.input) {
         log.info "📋 Using samplesheet CSV: ${params.input}"
 

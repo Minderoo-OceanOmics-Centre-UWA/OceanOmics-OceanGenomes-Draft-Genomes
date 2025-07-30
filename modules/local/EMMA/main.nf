@@ -21,7 +21,7 @@ process EMMA {
 
     script:
         def args   = task.ext.args ?: ''
-        def prefix = task.ext.prefix ?: meta.assembly_prefix
+        def prefix = task.ext.prefix ?: meta.mt_assembly_prefix
 
         """
             # Explicitly export the environment variable (double protection)
@@ -72,7 +72,7 @@ process EMMA {
 
  stub:
     def args   = task.ext.args ?: ''
-    def prefix = task.ext.prefix ?: "${meta.assembly_prefix}"
+    def prefix = task.ext.prefix ?: "${meta.mt_assembly_prefix}"
     
         """
         # Create mock emma version for stub
