@@ -48,8 +48,8 @@ def compare_lca_and_blast(config_path, og_id, lca_files, blast_files, output_fil
     db_params = load_db_config(config_path)
 
     # Combine files
-    concatenate_files(lca_files, "lca_combined.tsv")
-    concatenate_files(blast_files, "blast_combined.txt")
+    concatenate_files(lca_files, f"lca_combined.{og_id}.tsv")
+    concatenate_files(blast_files, f"blast_combined.{og_id}.tsv")
 
     # Get nominal_species_id from DB
     db_species = get_species_for_ogid(db_params, og_id)
@@ -61,7 +61,7 @@ def compare_lca_and_blast(config_path, og_id, lca_files, blast_files, output_fil
     db_species_norm = normalise_name(db_species)
 
     # Load BLAST results
-    blast_blob = load_blast_species_set(f"blast_combined.{og_id}.txt")
+    blast_blob = load_blast_species_set(f"blast_combined.{og_id}.tsv")
 
     # Process LCA and compare
     with open(f"lca_combined.{og_id}.tsv", newline='') as tsvfile, open(output_file, "w", newline='') as out:

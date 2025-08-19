@@ -8,14 +8,12 @@ process BBMAP_FILTERBYNAME {
         'community.wave.seqera.io/library/bbmap_pigz:07416fe99b090fa9' }"
 
     input:
-    tuple val(meta), path(reads)
-    val(names_to_filter)
+    tuple val(meta), path(reads), path(names_to_filter)
     val(output_format)
     val(interleaved_output)
 
     output:
     tuple val(meta), path("*.${output_format}"), emit: reads
-    tuple val(meta), path('*.log')             , emit: log
     path "versions.yml"                        , emit: versions
 
     when:
@@ -23,11 +21,9 @@ process BBMAP_FILTERBYNAME {
 
     script:
     def args = task.ext.args ?: ''
-    def prefix = task.ext.prefix ?: "${meta.id}"
-    def input  = meta.single_end ? "in=${reads}" : "in=${reads[0]} in2=${reads[1]}"
-    def output = (meta.single_end || interleaved_output) ?
-        "out=${prefix}.${output_format}" :
-        "out1=${prefix}_1.${output_format} out2=${prefix}_2.${output_format}"
+    def prefix = task.ext.prefix ?: "${meta.assembly_prefix}"
+    input  = "in=${reads}"
+    output = "out=${meta.assembly_prefix}.${output_format}"
     def names_command = names_to_filter ? "names=${names_to_filter}": ""
 
     def avail_mem = 3
@@ -44,7 +40,6 @@ process BBMAP_FILTERBYNAME {
         $output \\
         $names_command \\
         $args \\
-        | tee ${prefix}.log
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

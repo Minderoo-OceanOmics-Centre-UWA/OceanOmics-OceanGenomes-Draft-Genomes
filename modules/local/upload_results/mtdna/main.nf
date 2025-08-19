@@ -6,20 +6,25 @@ process PUSH_MTDNA_ASSM_RESULTS {
         'tylerpeirce/psycopg2:0.1' }"
 
     input:
-    tuple val(meta), path(fasta), path(log)
+    tuple val(meta), path(fasta), path(out_log)
     path config
 
     output:
-    path "${meta.id}.upload.txt", emit: upload
+    path "${meta.id}.mtdna.upload.txt", emit: upload
+    path "versions.yml"         , emit: versions
 
     script:
     """
     push_mtdna_assm_results.py \\
         $config \\
-        ${meta.assembly_prefix} \\
-        $log \\
-        $fasta\\
+        ${meta.mt_assembly_prefix} \\
+        $out_log \\
+        $fasta \\
         > ${meta.id}.mtdna.upload.txt
 
+    cat <<-END_VERSIONS > versions.yml
+    "${task.process}":
+        version 1 - need to version control these upload scripts.
+    END_VERSIONS
     """
     }

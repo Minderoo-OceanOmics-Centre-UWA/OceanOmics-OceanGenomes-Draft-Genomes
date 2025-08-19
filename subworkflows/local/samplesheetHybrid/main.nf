@@ -4,6 +4,15 @@
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    IMPORT MODULES / SUBWORKFLOWS / FUNCTIONS
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+*/
+
+// Taxon module, specific to OceanOmics DQL database
+include { TAXON                     } from '../../../modules/local/taxon_from_db'
+
+/*
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     SUBWORKFLOW TO INITIALISE PIPELINE
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
@@ -11,60 +20,106 @@
 workflow samplesheetHybrid {
 
     take:
-    repaired_ch { optional true }
+    repaired_ch
+    samplesheet
 
     main:
-    ch_samplesheet = Channel.empty()  // ✅ Safe placeholder declaration
     
-    // If providing an sample sheet as csv format it requires the following format: sample,run,R1,R2
-    // alternatively you can also provide the date of the sequencing run if your format isnt XXX_$DATE_XXX: sample,run,date,R1,R2
-    // R1 and R2 are the file paths to R1 and R2
-    if (params.input) {
-        log.info "📋 Using samplesheet CSV: ${params.input}"
+    // Count items in samplesheet to determine if it's empty
+    samplesheet
+        .count()
+        .set { samplesheet_count }
 
-        ch_samplesheet = Channel
-            .fromPath(params.input)
-            .splitCsv(header: true, schema: file(params.schema_input))
-            .map { row ->
-                def meta = [
-                    id   : row.sample,
-                    run  : row.run,
-                    date : row.date ?: row.run.tokenize('_')[1]
-                ]
+    // Branch based on whether samplesheet has content
+    samplesheet_count
+        .branch { count ->
+            has_samplesheet: count > 0
+            no_samplesheet: count == 0
+        }
+        .set { decision }
 
-                def reads = [
-                    file(row.R1),
-                    file(row.R2)
-                ]
+    // Process CSV samplesheet when available
+    ch_samplesheet_from_csv = decision.has_samplesheet
+        .combine(samplesheet)
+        .map { count, samplesheet_content -> samplesheet_content }
+        .splitCsv(header: true)
+        .map { row ->
+            log.info "📋 Using samplesheet CSV for sample: ${row.sample}"
+            
+            def meta = [
+                id   : row.sample,
+                run  : row.run,
+                date : row.date ?: row.run.tokenize('_')[1],
+                prefix : row.prefix,
+                taxon : row.taxon,
+                class : row.class
+            ]
 
-                tuple(meta, reads)
-            }
+            def reads = [
+                file(row.R1),
+                file(row.R2)
+            ]
 
-    } else if (repaired_ch) {
-        log.info "🔍 No samplesheet provided, using repaired output to build samplesheet..."
-        repaired_ch.view()
-        
+            tuple(meta, reads)
+        }
 
-        ch_samplesheet = repaired_ch
-            .map { sample_id, repaired_files ->
-                log.info "DEBUG repaired_files[0]: ${repaired_files[0]}"
-                log.info "DEBUG type: ${repaired_files[0].class}"
-                def run_match = repaired_files[0].getName() =~ /ilmn\.(.+?)\.R1/
-                def run_id = run_match ? run_match[0][1] : 'UNKNOWN_RUN'
-                def date = run_id.tokenize('_').size() > 1 ? run_id.tokenize('_')[1] : '000000'
+    // Process repaired_ch when no samplesheet
+    ch_samplesheet_from_repaired = decision.no_samplesheet
+        .combine(repaired_ch.ifEmpty { error "❗ No samplesheet provided and no repaired_ch input given. Cannot continue." })
+        .map { count, sample_id, repaired_files ->
+            log.info "🔍 No samplesheet provided, using repaired output to build samplesheet..."
+            log.info "DEBUG Processing sample_id: ${sample_id}"
+            log.info "DEBUG repaired_files[0]: ${repaired_files[0]}"
+            log.info "DEBUG type: ${repaired_files[0].class}"
+            
+            def meta_id = sample_id.split('\\.')[0] // Extract meta_id which is the first part of sample name seperated by .
+            
+            def meta = [
+                id: meta_id,
+                run: params.run,
+                date: params.date,
+                prefix: "${meta_id}.ilmn.${params.date}"
+            ]
 
-                def meta = [
-                    id   : sample_id,
-                    run  : run_id,
-                    date : date
-                ]
+            tuple(meta, repaired_files)
+        }
 
-                tuple(meta, repaired_files)
-            }
+    //
+    // MODULE: Retrieve NCBI taxon ID and taxonomic class from OceanOmics SQL database.
+    //      Taxon ID and class can be provided in sample sheet if running outside of OceanOmics
+    //
 
-    } else {
-        throw new RuntimeException("❗ No samplesheet provided and no repaired_ch input given. Cannot continue.")
+    TAXON (
+        ch_samplesheet_from_repaired, 
+        params.sql_config
+    )
+    .map { meta, repaired_files, taxon_csv_file ->
+        def taxon_row = taxon_csv_file
+            .splitCsv(header: true)
+            .first()
+
+        def updated_meta = meta + [
+            nom_species_id: taxon_row.nominal_species_id,
+            taxon_id: taxon_row.taxon_id,
+            class   : taxon_row.class
+        ]
+
+        // 🐛 DEBUG print to log
+        log.info "🔍 Updated meta for ${updated_meta.id}: ${updated_meta}"
+
+        tuple(updated_meta, repaired_files)
     }
+    .set { ch_samplesheet_from_repaired_with_taxon }
+
+    // Error code for if no taxon_id found
+    ch_samplesheet_from_repaired_with_taxon.map { meta, repaired_files ->
+        if (!meta.taxon_id) error "❗ taxon_id not found for sample ${meta.id}"
+        tuple(meta, repaired_files)
+    }
+
+
+    // Combine both channels (only one will have data)
+    ch_samplesheet = ch_samplesheet_from_csv.mix(ch_samplesheet_from_repaired_with_taxon)
 
     emit:
     samplesheet = ch_samplesheet

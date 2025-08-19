@@ -1,4 +1,4 @@
-process PUSH_MTDNA_ASSM_RESULTS {
+process PUSH_MTDNA_ANNOTATION_RESULTS {
     tag "$meta.id"
     label 'process_medium'
     container "${ workflow.containerEngine == 'singularity' && !task.ext.singularity_pull_docker_container ?
@@ -10,15 +10,16 @@ process PUSH_MTDNA_ASSM_RESULTS {
     path config
 
     output:
-    path "${meta.id}.upload.txt", emit: upload
+    path "${meta.id}.annotation.upload.txt", emit: upload
     path "${meta.id}.annotation_stats.csv", emit: stats
+    path "versions.yml"                   , emit: versions
 
     script:
     """
-    # Compile the statistics
+    # Compile the statistics 
     annotation_stats.py \\
-        ${annotations}/*.gff \\
-        ${annotations}/proteins
+        *.gff \\
+        proteins
     
     wait
 
@@ -28,7 +29,11 @@ process PUSH_MTDNA_ASSM_RESULTS {
         ${meta.id} \\
         ${meta.id}.annotation_stats.csv \\
         > ${meta.id}.annotation.upload.txt
-
+    
+    cat <<-END_VERSIONS > versions.yml
+    "${task.process}":
+        version 1 - need to version control these upload scripts.
+    END_VERSIONS
     """
     }
 

@@ -8,10 +8,8 @@ process BWAMEM2_MEM {
         'community.wave.seqera.io/library/bwa-mem2_htslib_samtools:e1f420694f8e42bd' }"
 
     input:
-    tuple val(meta), path(reads)
-    tuple val(meta2), path(index)
-    tuple val(meta3), path(fasta)
-    val   sort_bam
+    tuple val(meta), path(reads), path(index), path(fasta)
+
 
     output:
     tuple val(meta), path("*.sam")  , emit: sam , optional:true
@@ -19,6 +17,7 @@ process BWAMEM2_MEM {
     tuple val(meta), path("*.cram") , emit: cram, optional:true
     tuple val(meta), path("*.crai") , emit: crai, optional:true
     tuple val(meta), path("*.csi")  , emit: csi , optional:true
+    path "${meta.id}-sn_results.tsv"  , emit: results
     path  "versions.yml"            , emit: versions
 
     when:
@@ -28,7 +27,6 @@ process BWAMEM2_MEM {
     def args = task.ext.args ?: ''
     def args2 = task.ext.args2 ?: ''
     def prefix = task.ext.prefix ?: "${meta.id}"
-    def samtools_command = sort_bam ? 'sort' : 'view'
 
     def extension_pattern = /(--output-fmt|-O)+\s+(\S+)/
     def extension_matcher =  (args2 =~ extension_pattern)
@@ -45,8 +43,12 @@ process BWAMEM2_MEM {
         -t $task.cpus \\
         \$INDEX \\
         $reads \\
-        | samtools $samtools_command $args2 -@ $task.cpus ${reference} -o ${prefix}.${extension} -
+        | samtools view -b \\
+        | samtools sort -@ $task.cpus ${reference} -o ${meta.id}.sorted.bam -
+    
+    samtools index ${meta.id}.sorted.bam
 
+    samtools stats ${meta.id}.sorted.bam | grep "^SN" | cut -f 2- > ${meta.id}-sn_results.tsv
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
         bwamem2: \$(echo \$(bwa-mem2 version 2>&1) | sed 's/.* //')

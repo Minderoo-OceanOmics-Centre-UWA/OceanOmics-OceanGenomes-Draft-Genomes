@@ -2,8 +2,8 @@ process LCA {
     tag "$meta.id"
     label 'process_medium'
     container "${ workflow.containerEngine == 'singularity' && !task.ext.singularity_pull_docker_container ?
-        'docker://tylerpeirce/lca:0.1' :
-        'tylerpeirce/lca:0.1' }"
+        'docker://tylerpeirce/lca:0.2' :
+        'tylerpeirce/lca:0.2' }"
 
     input:
     tuple val(meta), path(blast_filtered), val(gene_type), val(annotation_name)
@@ -19,13 +19,10 @@ process LCA {
 
     python /computeLCA.py \\
         $blast_filtered \\
-        > lca.${gene_type}.${annotation_name}.tsv
-    
-    # Add in a column for the days date and the gene type        
-    sed -i "s/\$/\\t\$(date +%y%m%d)/" lca.${gene_type}.${annotation_name}.tsv
-    wait
-    sed -i "s/\$/\\t${gene_type}/" lca.${gene_type}.${annotation_name}.tsv
+        --output lca.${gene_type}.${annotation_name}.tsv \\
+        --gene-type ${gene_type}
 
+    
     cat <<-END_VERSIONS > versions_LCA.yml
     "${task.process}":
         Python: \$(python -V | sed 's/Python //g')

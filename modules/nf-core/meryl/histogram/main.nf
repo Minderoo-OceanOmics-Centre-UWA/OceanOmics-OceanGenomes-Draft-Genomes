@@ -20,14 +20,14 @@ process MERYL_HISTOGRAM {
 
     script:
     def args = task.ext.args ?: ''
-    def prefix = task.ext.prefix ?: "${meta.id}"
+    def prefix = task.ext.prefix ?: "${meta.prefix}"
     """
     meryl histogram \\
         k=$kvalue \\
         threads=$task.cpus \\
         memory=${task.memory.toGiga()} \\
         $args \\
-        $meryl_db > ${prefix}.hist
+        $meryl_db > ${prefix}.meryl.hist
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

@@ -30,8 +30,8 @@ process GETORGANELLE_FROMREADS {
         -F $organelle_type \\
         --config-dir $db \\
         -t $task.cpus \\
-        -1 ${fastq[0]} \\
-        -2 ${fastq[1]} \\
+        -1 ${fastp[0]} \\
+        -2 ${fastp[1]} \\
         -o mtdna
 
     wait

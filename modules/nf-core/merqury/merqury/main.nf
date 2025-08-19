@@ -12,22 +12,21 @@ process MERQURY_MERQURY {
     tuple val(meta), path(meryl_db), path(assembly)
 
     output:
-    tuple val(meta), path("*_only.bed")          , emit: assembly_only_kmers_bed
-    tuple val(meta), path("*_only.wig")          , emit: assembly_only_kmers_wig
     tuple val(meta), path("*.completeness.stats"), emit: stats
-    tuple val(meta), path("*.dist_only.hist")    , emit: dist_hist
     tuple val(meta), path("*.spectra-cn.fl.png") , emit: spectra_cn_fl_png
-    tuple val(meta), path("*.spectra-cn.hist")   , emit: spectra_cn_hist
     tuple val(meta), path("*.spectra-cn.ln.png") , emit: spectra_cn_ln_png
     tuple val(meta), path("*.spectra-cn.st.png") , emit: spectra_cn_st_png
     tuple val(meta), path("*.spectra-asm.fl.png"), emit: spectra_asm_fl_png
-    tuple val(meta), path("*.spectra-asm.hist")  , emit: spectra_asm_hist
     tuple val(meta), path("*.spectra-asm.ln.png"), emit: spectra_asm_ln_png
     tuple val(meta), path("*.spectra-asm.st.png"), emit: spectra_asm_st_png
     tuple val(meta), path("${prefix}.qv")        , emit: assembly_qv
     tuple val(meta), path("${prefix}.*.qv")      , emit: scaffold_qv
-    tuple val(meta), path("*.hist.ploidy")       , emit: read_ploidy
-    tuple val(meta), path("*.hapmers.blob.png")  , emit: hapmers_blob_png           , optional: true
+    // tuple val(meta), path("*_only.bed")          , emit: assembly_only_kmers_bed
+    // tuple val(meta), path("*_only.wig")          , emit: assembly_only_kmers_wig
+    // tuple val(meta), path("*.dist_only.hist")    , emit: dist_hist
+    // tuple val(meta), path("*.spectra-cn.hist")   , emit: spectra_cn_hist
+    // tuple val(meta), path("*.spectra-asm.hist")  , emit: spectra_asm_hist
+    // tuple val(meta), path("*.hist.ploidy")       , emit: read_ploidy
     path "versions.yml"                          , emit: versions
 
     when:
@@ -35,7 +34,7 @@ process MERQURY_MERQURY {
 
     script:
     // def args = task.ext.args ?: ''
-    prefix = task.ext.prefix ?: "${meta.id}"
+    prefix = task.ext.prefix ?: "${meta.assembly_prefix}.merqury"
     def VERSION = 1.3 // WARN: Version information not provided by tool on CLI. Please update this string when bumping container versions.
     """
     # Nextflow changes the container --entrypoint to /bin/bash (container default entrypoint: /usr/local/env-execute)
@@ -52,6 +51,7 @@ process MERQURY_MERQURY {
         $meryl_db \\
         $assembly \\
         $prefix
+
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

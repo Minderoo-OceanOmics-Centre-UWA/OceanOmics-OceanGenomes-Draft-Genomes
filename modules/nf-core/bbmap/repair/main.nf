@@ -11,7 +11,7 @@ process BBMAP_REPAIR {
     val(interleave)
 
     output:
-    tuple val(ogid), path("${prefix}.R*.fq.gz")         , emit: repaired
+    tuple val(ogid), path("*.{R1,R2}.fq.gz")         , emit: repaired
     path  "versions.yml"                                 , emit: versions
     path  "*paicheck.log"                                        , emit: log
 

@@ -25,8 +25,8 @@ process GENOMESCOPE2 {
     task.ext.when == null || task.ext.when
 
     script:
-    def args = task.ext.args ?: ''
-    prefix = task.ext.prefix ?: "${meta.id}"
+    def args = task.ext.args ?: '-k 21 -m 1000'
+    prefix = task.ext.prefix ?: "${meta.prefix}"
     """
     genomescope2 \\
         --input $histogram \\

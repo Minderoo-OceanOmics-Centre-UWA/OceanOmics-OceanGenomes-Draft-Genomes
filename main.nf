@@ -15,17 +15,31 @@
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
 
-include { DRAFTGENOMES  } from './workflows/draftgenomes'
-include { MITOGENOME_ASSEMBLY  } from './subworkflows/local/mitogenome_assembly/getorganelle'
-include { MITOGENOME_ANNOTATION  } from './subworkflows/local/mitogenome_annotation_lca'
-include { PIPELINE_INITIALISATION } from './subworkflows/local/utils_nfcore_oceangenomes_draftgenomes_pipeline'
-include { PIPELINE_COMPLETION     } from './subworkflows/local/utils_nfcore_oceangenomes_draftgenomes_pipeline'
+// Draft genome assembly subworkflows
+include { DOWNLOAD_READS            } from './subworkflows/local/download'
+include { samplesheetHybrid         } from './subworkflows/local/samplesheetHybrid'
+include { FASTP_FASTQC              } from './subworkflows/local/fastp_fastqc'
+include { GENOME_ASSEMBLY           } from './subworkflows/local/genome_assembly'
+include { GENOME_DECONTAMINATION    } from './subworkflows/local/genome_decontamination'
+include { GENOME_QC                 } from './subworkflows/local/genome_qc'
 
-include { MULTIQC                } from './modules/nf-core/multiqc/main'
-include { paramsSummaryMap       } from 'plugin/nf-schema'
-include { paramsSummaryMultiqc   } from './subworkflows/nf-core/utils_nfcore_pipeline'
-include { softwareVersionsToYAML } from './subworkflows/nf-core/utils_nfcore_pipeline'
-include { methodsDescriptionText } from './subworkflows/local/utils_nfcore_oceangenomes_draftgenomes_pipeline'
+// Module
+include { TRIGGER_MITOGENOME        } from './modules/local/mitogenome_trigger'
+
+// Mitogenome assembly subworkflows
+// include { MITOGENOME_ASSEMBLY       } from './subworkflows/local/mitogenome_assembly/getorganelle'
+// include { MITOGENOME_ANNOTATION     } from './subworkflows/local/mitogenome_annotation_lca'
+// include { UPLOAD_RESULTS            } from './subworkflows/local/upload_results'
+// include { MITOGENOME_QC  } from './subworkflows/local/mitogenome_qc'
+
+// Pipeline subworkflows
+include { PIPELINE_INITIALISATION   } from './subworkflows/local/utils_nfcore_oceangenomes_draftgenomes_pipeline'
+include { PIPELINE_COMPLETION       } from './subworkflows/local/utils_nfcore_oceangenomes_draftgenomes_pipeline'
+include { MULTIQC                   } from './modules/nf-core/multiqc/main'
+include { paramsSummaryMap          } from 'plugin/nf-schema'
+include { paramsSummaryMultiqc      } from './subworkflows/nf-core/utils_nfcore_pipeline'
+include { softwareVersionsToYAML    } from './subworkflows/nf-core/utils_nfcore_pipeline'
+include { methodsDescriptionText    } from './subworkflows/local/utils_nfcore_oceangenomes_draftgenomes_pipeline'
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -36,146 +50,330 @@ include { methodsDescriptionText } from './subworkflows/local/utils_nfcore_ocean
 //
 // WORKFLOW: Run main analysis pipeline depending on type of input
 //
+
 workflow OCEANGENOMES_DRAFTGENOMES {
 
     take:
-    //samplesheet // channel: samplesheet read in from --input
         run_id // params.run
         bs_config // params.bs_config
         curated_blast_db // params.curated_blast_db
         sql_config // params.sql_config
+        organelle_type // params.organelle_type "animal_mt"
         
     main:
     
     ch_multiqc_files = Channel.empty()
+    samplesheet = params.input ? Channel.fromPath(params.input) : Channel.empty()
+    /* The if and else statements in this workflow are for when steps are skipped in the nextflow_run script.
+        What it is doing is 'if' this processes isnt skipped then run the subworkflow and provide the standard outputs.
+        
+        Then 'else if' is if the process has been skipped then we will create the required input for the following
+        subworkflows using the predefined file paths for the output in the nextflow.config, the "precomputed_*" file
+        paths. 
+            The relevant information is extracted to create the meta map from the parts of the file name. This is
+            assuming that files are named with the sample id, then the type of sequencing, the date and then the other
+            information in the file name, all seperated by a '.'
+            The mitogenome sections assume that the files are named as above, $sample_id.$sequencing_technology.$date with
+            additional information added to this with each proccess. The assembly process will add a .getorganelle${version}
+            after the inital prefix and befor the file extension. Then the annotation process will add a .emma${version} to 
+            the previous prefix.
+        
+        The 'else' statement is then just creating and empty channel if neither of the previous steps worked.
+    */
 
     //
     // WORKFLOW: Run pipeline
     //
+
     if (!params.skip_download_reads) {
         DOWNLOAD_READS(
             run_id, 
             bs_config
         )
+        ch_download_reads_results = DOWNLOAD_READS.out.repaired_reads // tuple val(ogid), path("${prefix}.R*.fq.gz") 
+    } else if (params.precomputed_download_reads_results) {
+        // Use precomputed results if analysis is skipped
+        ch_download_reads_results = Channel.fromFilePairs(params.precomputed_download_reads_results, checkIfExists: true)
+            .map { sample_id, reads ->
+                def meta_id = sample_id.split('\\.')[0] // Extract meta_id which is the first part of sample name seperated by .
+                return tuple(meta_id, reads) // or tuple(meta, reads) depending on your downstream processes
+            }
+    } else {
+        ch_download_reads_results = Channel.empty()
     }
-// if i am providing path to precomputed results i need code to re make meta and tuples
-// meta is just: 
-//  id = og_id
-//  run = params.run - maybe this can be determined from file name if passing in info as may not be running all from the same run
-//  date = parames.date - or as above, pull from file name
-//  prefix = ${meta.id}.ilmn.${run}
 
     //
-    // FASTP
+    // Run the samplesheetHybrid to process input file or the DOWNLOAD_READS output
     //
-    if (!params.skip_fastp) {
-        FASTP (
-            samplesheet_ch
+
+    samplesheetHybrid(
+        ch_download_reads_results,
+        samplesheet
+    )
+    ch_samplesheetHybrid_results = samplesheetHybrid.out.samplesheet // tuple(meta, reads) meta: id, run, date, prefix
+
+    //
+    // SUBWORKFLOW: FASTP_FASTQC
+    //
+
+    if (!params.skip_fastp_fastqc) {
+        FASTP_FASTQC (
+            ch_samplesheetHybrid_results
         )
-        ch_fastp_results = 
-    } else if (params.precomputed_fastp_results) {
+        ch_fastp_fastqc_results = FASTP_FASTQC.out.fastp_reads // tuple val(meta), path('*.fastq.gz')
+    } else if (params.precomputed_fastp_fastqc_results) {
         // Use precomputed results if analysis is skipped
-        ch_fastp_results = Channel.fromPath(params.precomputed_fastp_results)
+        ch_fastp_fastqc_results = Channel.fromFilePairs(params.precomputed_fastp_fastqc_results, checkIfExists: true)
+            .map { sample_id, reads ->
+                def basename = file.baseName
+                def meta_id = sample_id.split('\\.')[0]
+                def meta = [
+                    id: meta_id,
+                    run: params.run,
+                    date: params.date,
+                    assembly_prefix: sample_id
+                ]
+                return tuple(meta, reads)
+            }
     } else {
-        ch_fastp_results = Channel.empty()
+        ch_fastp_fastqc_results = Channel.empty()
     }
     
     //
-    // GENOME_ASSEMBLY
+    // MODULE: TRIGGER_MITOGENOME
     //
+
+    TRIGGER_MITOGENOME(
+        ch_fastp_fastqc_results
+    )
+
+
+    //
+    // SUBWORKFLOW: GENOME_ASSEMBLY
+    //
+
     if (!params.skip_genome_assembly) {
         GENOME_ASSEMBLY (
-
+            ch_fastp_fastqc_results
         )
-        ch_genome_assembly_results = 
+        ch_genome_assembly_results = GENOME_ASSEMBLY.out.megahit_assembled_contigs
+        ch_meryl_db = GENOME_ASSEMBLY.out.meryl_db
+        ch_genomescope_summary = GENOME_ASSEMBLY.out.genomescope_summary
     } else if (params.precomputed_genome_assembly_results) {
         // Use precomputed results if analysis is skipped
-        ch_genome_assembly_results = Channel.fromPath(params.precomputed_genome_assembly_results)
+        ch_genome_assembly_results = Channel.fromPath(params.precomputed_genome_assembly_results, checkIfExists: true)
+        .map { file ->
+            def assembly_id = file.baseName
+            def parts = assembly_id.split('\\.')
+            def meta_id = parts[0]
+            def date = parts[2]
+            def sample_id = parts[0..2].join('.')  // Parts 0, 1, and 2 joined with dots
+            def assembly_prefix = parts[0..3].join('.')
+            def meta = [
+                id: meta_id,
+                run: params.run, // not using the params.run so if running files across multiple runs it doesnt matter what this value is.
+                date: date,
+                prefix: sample_id,
+                assembly_prefix: assembly_prefix
+            ]
+            return tuple(meta, file)
+        }
+
+        ch_genomescope_summary = Channel.fromPath(params.precomputed_genomescope_summary, checkIfExists: true)
+        .map { file ->
+            // Extract sample_id from the file basename
+            def sample_id = file.baseName.replace('_summary', '')
+            def parts = sample_id.split('\\.')
+            def meta_id = parts[0]
+            def date = parts.size() > 2 ? parts[2] : params.date
+            
+            def meta = [
+                id: meta_id,
+                run: params.run, // not using the params.run so if running files across multiple runs it doesnt matter what this value is.
+                date: date,
+                prefix: sample_id
+            ]
+            
+            return tuple(meta, meryl_dir)
+        }
+
+        ch_meryl_db = Channel.fromPath(params.precomputed_meryl_results, type: 'dir', checkIfExists: true)
+        .map { meryl_dir ->
+            // Extract sample_id from the .meryl directory name (the * before .meryl)
+            def sample_id = meryl_dir.name.replace('.meryl', '')
+            def parts = sample_id.split('\\.')
+            def meta_id = parts[0]
+            def date = parts.size() > 2 ? parts[2] : params.date
+            
+            def meta = [
+                id: meta_id,
+                run: params.run, // not using the params.run so if running files across multiple runs it doesnt matter what this value is.
+                date: date,
+                prefix: sample_id
+            ]
+            
+            return tuple(meta, meryl_dir)
+        }
+
     } else {
         ch_genome_assembly_results = Channel.empty()
+        ch_meryl_db = Channel.empty()
     }
 
-    // GENOME_DECONTAMINATION
+    
+    //
+    // SUBWORKFLOW: GENOME_DECONTAMINATION
+    //
+
     if (!params.skip_genome_decontamination) {
         GENOME_DECONTAMINATION (
-
+            ch_genome_assembly_results
         )
-        ch_genome_decontamination_results = 
+        ch_genome_decontamination_assembly = GENOME_DECONTAMINATION.out.decontamined_assembled_reads
     } else if (params.precomputed_genome_decontamination_results) {
         // Use precomputed results if analysis is skipped
-        ch_genome_decontamination_results = Channel.fromPath(params.precomputed_genome_decontamination_results
+        ch_genome_decontamination_assembly = Channel.fromPath(params.precomputed_genome_decontamination_results, checkIfExists: true)
+        .map { file ->
+            def assembly_id = file.baseName
+            def parts = assembly_id.split('\\.')
+            def meta_id = parts[0]
+            def date = parts[2]
+            def sample_id = parts[0..2].join('.')  // Parts 0, 1, and 2 joined with dots
+            def assembly_prefix = parts[0..3].join('.')
+            def meta = [
+                id: meta_id,
+                run: params.run, // not using the params.run so if running files across multiple runs it doesnt matter what this value is.
+                date: date,
+                prefix: sample_id,
+                assembly_prefix: assembly_prefix
+            ]
+            return tuple(meta, file)
+        }
     } else {
-        ch_genome_decontamination_results = Channel.empty()
+        ch_genome_decontamination_assembly = Channel.empty()
     }
 
+
     //
-    // GENOME_QC
+    // SUBWORKFLOW: GENOME_QC
     //
+
     if (!params.skip_genome_qc) {
         GENOME_QC (
-
+            ch_fastp_fastqc_results,
+            ch_genome_decontamination_assembly,
+            ch_meryl_db,
+            ch_genomescope_summary
         )
-        ch_genome_qc_results = // not sure if there is output from this one that will go anywhere, actually mauybe data upload
+        ch_genome_qc_results = GENOME_QC.out.results // not sure if there is output from this one that will go anywhere, actually mauybe data upload
     } else if (params.precomputed_genome_qc_results) {
         // Use precomputed results if analysis is skipped
+        /* For the genome QC there is going to be multiple outputs of the results from the different modules run within this subworkflow.
+            These results will need to be pushed up to the SQL database. So more modules could be added to the upload subworkflow for these.
+            Or have a seperate draft genome results subwokflow which is probably better, to keep the mitogenome pipeline seperate.
+            Will need to add in all the outputs and the if skipped paths to files evenbtually.
+        */
         ch_genome_qc_results = Channel.fromPath(params.precomputed_genome_qc_results)
     } else {
         ch_genome_qc_results = Channel.empty()
     }
 
-    //
-    // MITOGENOME_ASSEMBLY
-    //
-    if (!params.skip_upload_results) {
-        MITOGENOME_ASSEMBLY (
-            ch_fastp_results,
-            organelle_type = "animal_mt"  // << pass it in here
-        )
-        ch_mitogenome_assembly_results = 
-    } else if (params.precomputed_mitogenome_assembly_results) {
-        // Use precomputed results if analysis is skipped
-        ch_mitogenome_assembly_results = Channel.fromPath(params.precomputed_mitogenome_assembly_results)
-    } else {
-        ch_mitogenome_assembly_results = Channel.empty()
-    }
 
-    //
-    // MITOGENOME_ANNOTATION
-    //
-    if (!params.skip_upload_results) {
-        MITOGENOME_ANNOTATION (
-            ch_mitogenome_assembly_results,
-            curated_blast_db,
-            sql_config // params.sql_config
-        )
-        ch_mitogenome_annotation_results = MITOGENOME_ANNOTATION.out.annotation_results
-        ch_mitogenome_blast_results = MITOGENOME_ANNOTATION.out.blast_filtered_results
-        ch_mitogenome_lca_results = MITOGENOME_ANNOTATION.out.lca_results
-    } else if (params.precomputed_mitogenome_annotation_results) {
-        // Use precomputed results if analysis is skipped
-        ch_mitogenome_annotation_results = Channel.fromPath(params.precomputed_mitogenome_annotation_results)
-        ch_mitogenome_blast_results = Channel.fromPath(params.precomputed_mitogenome_blast_results)
-        ch_mitogenome_lca_results = Channel.fromPath(params.precomputed_mitogenome_lca_results)
-    } else {
-        ch_mitogenome_annotation_results = Channel.empty()
-        ch_mitogenome_blast_results = Channel.empty()
-        ch_mitogenome_lca_results = Channel.empty()
-    }
+    // //
+    // // SUBWORKFLOW: MITOGENOME_ASSEMBLY
+    // //
 
-    //
-    // UPLOAD_RESULTS
-    //
-    // Conditional uploading of results to SQL and species check - only run if not skipped
-    // All these processes access the OceanOmics PostgreSQL database.
-    if (!params.skip_upload_results) {
-        UPLOAD_RESULTS (
-            assembly_results        = MITOGENOME_ASSEMBLY.out.assembly_results
-            annotation_results      = MITOGENOME_ANNOTATION.out.annotation_results
-            blast_filtered_results  = MITOGENOME_ANNOTATION.out.blast_filtered_results
-            lca_results             = MITOGENOME_ANNOTATION.out.lca_results
-            sql_config // params.sql_config
-        )
-    }
+    // if (!params.skip_mitogenome_assembly) {
+    //     MITOGENOME_ASSEMBLY (
+    //         ch_fastp_fastqc_results,
+    //         organelle_type // params.organelle_type
+    //     )
+    //     ch_mitogenome_assembly_fasta = MITOGENOME_ASSEMBLY.out.assembly_fasta
+    //     ch_mitogenome_assembly_log = MITOGENOME_ASSEMBLY.out.assembly_log
+    // } else if (params.precomputed_mitogenome_assembly_results) {
+    //     // Use precomputed results if analysis is skipped
+    //     ch_mitogenome_assembly_fasta = Channel.fromPath(params.precomputed_mitogenome_assembly_fasta, checkIfExists: true)
+    //     .map { file ->
+    //         // Extract sample_id from the filename (without extension)
+    //         def filename = file.baseName  // Gets filename without .fasta extension
+    //         def parts = filename.split('\\.')
+    //         def meta_id = parts[0]
+    //         def date = parts.length > 2 ? parts[2] : null
+    //         def sample_id = parts.length > 2 ? parts[0..2].join('.') : filename
+            
+    //         def meta = [
+    //             id: meta_id,
+    //             run: params.run,
+    //             date: date,
+    //             mt_assembly_prefix: sample_id
+    //         ]
+    //         return tuple(meta, file)
+    //     }
+    //     ch_mitogenome_assembly_log = Channel.fromPath(params.precomputed_mitogenome_assembly_log, checkIfExists: true)
+    //     .map { file ->
+    //         // Extract sample_id from the filename (without extension)
+    //         def filename = file.baseName  // Gets filename without extension
+    //         def parts = filename.split('\\.')
+    //         def meta_id = parts[0]
+    //         def date = parts.length > 2 ? parts[2] : null
+    //         def sample_id = parts.length > 2 ? parts[0..2].join('.') : filename
+            
+    //         def meta = [
+    //             id: meta_id,
+    //             run: params.run,
+    //             date: date,
+    //             mt_assembly_prefix: sample_id
+    //         ]
+    //         return tuple(meta, file)
+    //     }
+    // } else {
+    //     ch_mitogenome_assembly_fasta = Channel.empty()
+    //     ch_mitogenome_assembly_log = Channel.empty()
+    // }
+
+    // //
+    // // SUBWORKFLOW: MITOGENOME_ANNOTATION
+    // //
+    // if (!params.skip_mitogenome_annotation) {
+    //     MITOGENOME_ANNOTATION (
+    //         ch_mitogenome_assembly_fasta,
+    //         curated_blast_db,
+    //         sql_config // params.sql_config
+    //     )
+    //     ch_mitogenome_annotation_results = MITOGENOME_ANNOTATION.out.annotation_results
+    //     ch_mitogenome_blast_results = MITOGENOME_ANNOTATION.out.blast_filtered_results
+    //     ch_mitogenome_lca_results = MITOGENOME_ANNOTATION.out.lca_results
+    // } else if (params.precomputed_mitogenome_annotation_results) {
+    //     // Use precomputed results if analysis is skipped
+    //     ch_mitogenome_annotation_results = Channel.fromPath(params.precomputed_mitogenome_annotation_results)
+    //     ch_mitogenome_blast_results = Channel.fromPath(params.precomputed_mitogenome_blast_results)
+    //     ch_mitogenome_lca_results = Channel.fromPath(params.precomputed_mitogenome_lca_results)
+    // } else {
+    //     ch_mitogenome_annotation_results = Channel.empty()
+    //     ch_mitogenome_blast_results = Channel.empty()
+    //     ch_mitogenome_lca_results = Channel.empty()
+    // }
+
+    // //
+    // // Combine outputs for data uploads
+    // //
+
+    // ch_mitogenome_assembly_results = ch_mitogenome_assembly_fasta.join(ch_mitogenome_assembly_log, by: 0)
+
+    // //
+    // // SUBWORKFLOW: UPLOAD_RESULTS
+    // //
+    // // Conditional uploading of results to SQL and species check - only run if not skipped
+    // // All these processes access the OceanOmics PostgreSQL database.
+    // if (!params.skip_upload_results) {
+    //     UPLOAD_RESULTS (
+    //         ch_mitogenome_assembly_results,
+    //         ch_mitogenome_annotation_results,
+    //         ch_mitogenome_blast_results,
+    //         ch_mitogenome_lca_results,
+    //         sql_config // params.sql_config
+    //     )
+    // }
 
 
     // If the LCA validation is correct, then run the QC to prepare for submission to GenBank
@@ -185,21 +383,35 @@ workflow OCEANGENOMES_DRAFTGENOMES {
     // group of similar mitogenomes they can be submitted as a batch.
     // MITOGENOME_QC (
 
-    // )
+    //
     // Collect all MultiQC files from all subworkflows
-    ch_multiqc_files = ch_multiqc_files.mix(DRAFTGENOMES.out.multiqc_files)
-    ch_multiqc_files = ch_multiqc_files.mix(MITOGENOMES.out.multiqc_files)
-    ch_multiqc_files = ch_multiqc_files.mix(MITOGENOME_ANNOTATION.out.multiqc_files)
-    
+    //
+
+    if (!params.skip_download_reads) {ch_multiqc_files = ch_multiqc_files.mix(DOWNLOAD_READS.out.multiqc_files)}
+    if (!params.skip_fastp_fastqc) {ch_multiqc_files = ch_multiqc_files.mix(FASTP_FASTQC.out.multiqc_files)}
+    // if (!params.skip_genome_assembly) {ch_multiqc_files = ch_multiqc_files.mix(GENOME_ASSEMBLY.out.multiqc_files)}
+    // if (!params.skip_genome_decontamination) {ch_multiqc_files = ch_multiqc_files.mix(GENOME_DECONTAMINATION.out.multiqc_files)}
+    // if (!params.skip_genome_qc) {ch_multiqc_files = ch_multiqc_files.mix(GENOME_QC.out.multiqc_files)}
+    // if (!params.skip_mitogenome_assembly) {ch_multiqc_files = ch_multiqc_files.mix(MITOGENOME_ASSEMBLY.out.multiqc_files)}
+    // if (!params.skip_mitogenome_annotation) {ch_multiqc_files = ch_multiqc_files.mix(MITOGENOME_ANNOTATION.out.multiqc_files)}
+
+    // 
     // Collect all versions
+    //
+
     ch_collated_versions = Channel.empty()
-    ch_collated_versions = ch_collated_versions.mix(DRAFTGENOMES.out.versions)
-    ch_collated_versions = ch_collated_versions.mix(MITOGENOMES.out.versions)
-    ch_collated_versions = ch_collated_versions.mix(MITOGENOME_ANNOTATION.out.versions)
+    if (!params.skip_download_reads) {ch_collated_versions = ch_collated_versions.mix(DOWNLOAD_READS.out.versions)}
+    if (!params.skip_fastp_fastqc) {ch_collated_versions = ch_collated_versions.mix(FASTP_FASTQC.out.versions)}
+    // if (!params.skip_genome_assembly) {ch_collated_versions = ch_collated_versions.mix(GENOME_ASSEMBLY.out.versions)}
+    // if (!params.skip_genome_decontamination) {ch_collated_versions = ch_collated_versions.mix(GENOME_DECONTAMINATION.out.versions)}
+    // if (!params.skip_genome_qc) {ch_collated_versions = ch_collated_versions.mix(GENOME_QC.out.versions)}
+    // if (!params.skip_mitogenome_assembly) {ch_collated_versions = ch_collated_versions.mix(MITOGENOME_ASSEMBLY.out.versions)}
+    // if (!params.skip_mitogenome_annotation) {ch_collated_versions = ch_collated_versions.mix(MITOGENOME_ANNOTATION.out.versions)}
 
     //
     // MODULE: MultiQC
     //
+
     ch_multiqc_config        = Channel.fromPath(
         "$projectDir/assets/multiqc_config.yml", checkIfExists: true)
     ch_multiqc_custom_config = params.multiqc_config ?
@@ -236,6 +448,12 @@ workflow OCEANGENOMES_DRAFTGENOMES {
         [],
         []
     )
+
+    
+    //
+    // Emit outputs
+    //
+
     emit:
     multiqc_report = MULTIQC.out.report.toList() // channel: /path/to/multiqc_report.html 
 
@@ -257,8 +475,8 @@ workflow {
         params.validate_params,
         params.monochrome_logs,
         args,
-        params.outdir
-        // params.input // this is now inncliuded in the samplesheetHybrid wf
+        params.outdir,
+        // params.input { optional true } // this is now inncliuded in the samplesheetHybrid wf
     )
 
     //
@@ -268,7 +486,8 @@ workflow {
         params.run,
         params.bs_config,
         params.curated_blast_db,
-        params.sql_config
+        params.sql_config,
+        params.organelle_type
     )
 
     //

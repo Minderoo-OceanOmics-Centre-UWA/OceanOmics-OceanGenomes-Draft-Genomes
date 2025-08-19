@@ -11,7 +11,8 @@ process SPECIES_VALIDATION {
 
     output:
     path "lca_results.${meta.id}.tsv", emit: summary
-    tuple path ("lca_combined.${meta.id}.tsv"), path ("blast_combined.${meta.id}.txt"), emit: full
+    tuple val(meta), path("lca_combined.${meta.id}.tsv"), path("blast_combined.${meta.id}.tsv"), emit: full
+    path "versions.yml"                   , emit: versions
 
     script:
     """
@@ -21,5 +22,9 @@ process SPECIES_VALIDATION {
         "${lca_files.join(',')}" \\
         "${blast_files.join(',')}"
 
+    cat <<-END_VERSIONS > versions.yml
+    "${task.process}":
+        version 1 - need to version control this species validation script.
+    END_VERSIONS
     """
     }
