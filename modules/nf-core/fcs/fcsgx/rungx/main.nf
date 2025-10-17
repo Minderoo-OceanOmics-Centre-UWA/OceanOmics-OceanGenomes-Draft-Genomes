@@ -16,7 +16,7 @@ process FCSGX_RUNGX {
     tuple val(meta), path("*.fcs_gx_report.txt"), emit: fcsgx_report
     tuple val(meta), path("*.taxonomy.rpt")     , emit: taxonomy_report
     tuple val(meta), path("*.summary.txt")      , emit: log
-    tuple val(meta), path("*.hits.tsv.gz")      , emit: hits, optional: true
+    // tuple val(meta), path("*.hits.tsv.gz")      , emit: hits, optional: true
     path "versions.yml"                         , emit: versions
 
     when:

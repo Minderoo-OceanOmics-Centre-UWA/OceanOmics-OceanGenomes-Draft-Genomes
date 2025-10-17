@@ -1,6 +1,6 @@
 process BUSCO_BUSCO {
     tag "${meta.id}"
-    label 'process_medium'
+    label 'process_high_memory'
 
     conda "${moduleDir}/environment.yml"
     container "${workflow.containerEngine == 'singularity' && !task.ext.singularity_pull_docker_container
@@ -17,15 +17,16 @@ process BUSCO_BUSCO {
     tuple val(meta), path("*.short_summary.txt")                                              , emit: short_summaries_txt , optional: true
     tuple val(meta), path("*.short_summary.json")                                             , emit: short_summaries_json, optional: true
     tuple val(meta), path("*busco*.logs")                                                      , emit: log                 , optional: true
+    tuple val(meta), path("*/*/logs")                                                      , emit: log2                 , optional: true
     tuple val(meta), path("*busco*.full_table.tsv")                                   , emit: full_table          , optional: true
     tuple val(meta), path("*busco*.missing_busco_list.tsv")                           , emit: missing_busco_list  , optional: true
     // tuple val(meta), path("*busco*/*/run_*/single_copy_proteins.faa")                         , emit: single_copy_proteins, optional: true
-    tuple val(meta), path("*busco*.busco_sequences.tar.gz")                                  , emit: seq_dir             , optional: true
+    tuple val(meta), path("*busco*.busco_sequences.tar.gz*")                                  , emit: seq_dir             , optional: true
     // tuple val(meta), path("*busco*/*/translated_proteins")                                    , emit: translated_dir      , optional: true
-    tuple val(meta), path("*busco*")                                                          , emit: busco_dir
-    tuple val(meta), path("busco_downloads/lineages/*")                                       , emit: downloaded_lineages , optional: true
-    tuple val(meta), path("*busco*/*/run_*/busco_sequences/single_copy_busco_sequences/*.faa"), emit: single_copy_faa     , optional: true
-    tuple val(meta), path("*busco*/*/run_*/busco_sequences/single_copy_busco_sequences/*.fna"), emit: single_copy_fna     , optional: true
+    // tuple val(meta), path("*busco*")                                                          , emit: busco_dir
+    // tuple val(meta), path("busco_downloads/lineages/*")                                       , emit: downloaded_lineages , optional: true
+    // tuple val(meta), path("*busco*/*/run_*/busco_sequences/single_copy_busco_sequences/*.faa"), emit: single_copy_faa     , optional: true
+    // tuple val(meta), path("*busco*/*/run_*/busco_sequences/single_copy_busco_sequences/*.fna"), emit: single_copy_fna     , optional: true
 
     path "versions.yml"                                                                       , emit: versions
 

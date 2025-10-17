@@ -23,7 +23,6 @@ process MERYL_HISTOGRAM {
     def prefix = task.ext.prefix ?: "${meta.prefix}"
     """
     meryl histogram \\
-        k=$kvalue \\
         threads=$task.cpus \\
         memory=${task.memory.toGiga()} \\
         $args \\

@@ -21,13 +21,14 @@ process BBMAP_REPAIR {
     script:
     def args   = task.ext.args ?: ''
     prefix = task.ext.prefix ?: "${ogid}.ilmn.${params.run}"
-    in_reads  = ( interleave )  ?: "in=${prefix}.cat.R1.fq.gz in2=${prefix}.cat.R2.fq.gz"
+    in_reads  = ( interleave )  ?: "in=cat/${prefix}.cat.R1.fq.gz in2=cat/${prefix}.cat.R2.fq.gz"
     out_reads = ( interleave )  ?: "out=${prefix}.R1.fq.gz out2=${prefix}.R2.fq.gz"
       
  
     """
-    cat ${ogid}*R1*.gz > ${prefix}.cat.R1.fq.gz && echo "cat R1 completed"
-    cat ${ogid}*R2*.gz > ${prefix}.cat.R2.fq.gz && echo "cat R2 completed" 
+    mkdir -p cat
+    cat ${ogid}*R1*.gz > cat/${prefix}.cat.R1.fq.gz && echo "cat R1 completed"
+    cat ${ogid}*R2*.gz > cat/${prefix}.cat.R2.fq.gz && echo "cat R2 completed" 
 
     maxmem=\$(echo \"$task.memory\"| sed 's/ GB/g/g')
     repair.sh \\

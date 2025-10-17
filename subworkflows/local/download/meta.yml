@@ -1,0 +1,33 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/nf-core/modules/master/subworkflows/yaml-schema.json
+name: "DOWNLOAD_READS"
+description: Download sequencing data from Illumina BaseSpace and repair read pairing before downstream processing.
+keywords:
+  - basespace
+  - download
+  - fastq
+  - preprocessing
+components:
+  - BASESPACE
+  - BBMAP_REPAIR
+  - softwareVersionsToYAML
+input:
+  - run_id:
+      type: string
+      description: Illumina BaseSpace run identifier used to fetch datasets.
+  - bs_config:
+      type: file
+      description: Configuration or credentials file required by the BaseSpace CLI.
+output:
+  - repaired_reads:
+      type: list
+      description: Channel emitting tuples `[meta_id, repaired_fastq_files]` grouped per sample after re-pairing.
+  - multiqc_files:
+      type: list
+      description: Placeholder channel for MultiQC inputs, currently empty.
+  - versions:
+      type: file
+      description: Collated software versions written to `pipeline_info/`.
+authors:
+  - "@tpeirce"
+maintainers:
+  - "@tpeirce"

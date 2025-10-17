@@ -1,0 +1,33 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/nf-core/modules/master/subworkflows/yaml-schema.json
+name: "PIPELINE_INITIALISATION"
+description: Initialise pipeline execution by validating parameters, printing version information, and performing template checks. The same directory also defines `PIPELINE_COMPLETION`, which reuses these utilities when the workflow finishes.
+keywords:
+  - utility
+  - initialise
+  - validation
+  - notifications
+components:
+  - UTILS_NFSCHEMA_PLUGIN
+  - UTILS_NFCORE_PIPELINE
+  - UTILS_NEXTFLOW_PIPELINE
+input:
+  - version:
+      type: boolean
+      description: Print pipeline version and exit when true.
+  - validate_params:
+      type: boolean
+      description: Toggle nf-schema validation of supplied parameters.
+  - monochrome_logs:
+      type: boolean
+      description: Disable ANSI colour codes in log output.
+  - nextflow_cli_args:
+      type: list
+      description: Positional Nextflow CLI arguments supplied on invocation.
+  - outdir:
+      type: directory
+      description: Output directory used for logs and reports.
+output: []
+authors:
+  - "@tpeirce"
+maintainers:
+  - "@tpeirce"

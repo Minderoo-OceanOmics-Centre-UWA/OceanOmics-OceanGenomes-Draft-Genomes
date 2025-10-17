@@ -1,0 +1,47 @@
+name: taxon_from_db
+description: Retrieve taxonomy metadata from a PostgreSQL database and attach it to repaired assemblies.
+keywords:
+  - taxonomy
+  - database
+  - postgresql
+  - annotation
+tools:
+  - psycopg2:
+      description: PostgreSQL database adapter for Python.
+      homepage: https://www.psycopg.org/
+      documentation: https://www.psycopg.org/docs/
+      licence: ["LGPL-3.0-or-later with exceptions"]
+
+input:
+  - - meta:
+        type: map
+        description: |
+          Groovy Map containing sample information
+          e.g. [ id:'sample', id_short:'sample' ]
+    - repaired_files:
+        type: file
+        description: Assembly FASTA file to annotate with taxonomic metadata.
+    - config:
+        type: file
+        description: Configuration file containing PostgreSQL connection parameters.
+
+output:
+  - taxon_metadata:
+      - meta:
+          type: map
+          description: |
+            Groovy Map containing sample information
+            e.g. [ id:'sample', id_short:'sample' ]
+      - repaired_files:
+          type: file
+          description: Assembly FASTA file forwarded unchanged.
+      - "*_taxon_meta.csv":
+          type: file
+          description: Table containing taxonomy metadata fetched for the sample.
+          pattern: "*_taxon_meta.csv"
+
+authors:
+  - "@tpeirce"
+
+maintainers:
+  - "@tpeirce"

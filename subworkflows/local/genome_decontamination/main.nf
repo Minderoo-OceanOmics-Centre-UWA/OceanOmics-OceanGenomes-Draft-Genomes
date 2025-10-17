@@ -4,9 +4,6 @@
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
 
-
-include { softwareVersionsToYAML    } from '../../nf-core/utils_nfcore_pipeline'
-
 //decontamination
 include { FCSGX_RUNGX               } from '../../../modules/nf-core/fcs/fcsgx/rungx'
 include { FCSGX_CLEANGENOME         } from '../../../modules/nf-core/fcs/fcsgx/cleangenome'
@@ -43,6 +40,7 @@ workflow GENOME_DECONTAMINATION {
             : meta + [ assembly_prefix: fasta.baseName ]
         [meta_ext, fasta]
     }
+
 
     //
     // MODULE: Run fcs-gx find contamination
@@ -139,26 +137,16 @@ workflow GENOME_DECONTAMINATION {
     ch_versions = ch_versions.mix(BBMAP_FILTERBYNAME_TIARA.out.versions.first())
 
     //
-    // Collate and save software versions
-    //
-    
-    softwareVersionsToYAML(ch_versions)
-        .collectFile(
-            storeDir: "${params.outdir}/pipeline_info",
-            name: 'nf_core_'  +  'oceangenomes_draftgenomes_software_'  + 'mqc_'  + 'versions.yml',
-            sort: true,
-            newLine: true
-        ).set { ch_collated_versions }
-
-    
-    //
     // Emit outputs
     //
     
     emit:
     decontamined_assembled_reads = BBMAP_FILTERBYNAME_TIARA.out.reads // channel to the mitogenome pipeline
+    filter_report = BBMAP_FILTERBYNAME.out.filter_report // channel: tuple val(meta), path ("$filter_report")
+    contigs_under_500bp = BBMAP_FILTERBYNAME.out.contigs_under_500bp // channel: tuple val(meta), path("${meta.prefix}.contig_count_500bp.txt
+    tiara_filter_summary = TIARA_TIARA.out.summary // channel: tuple val(meta), path("*.tiara_filter_summary.txt")
     multiqc_files = ch_multiqc_files             // channel: [ path(multiqc_files) ]
-    versions = ch_collated_versions              // channel: [ path(versions.yml) ]
+    versions = ch_versions              // channel: [ path(versions.yml) ]
 
 
 

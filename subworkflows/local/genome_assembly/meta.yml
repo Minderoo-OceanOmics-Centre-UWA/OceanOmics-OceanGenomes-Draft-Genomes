@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/nf-core/modules/master/subworkflows/yaml-schema.json
+name: "GENOME_ASSEMBLY"
+description: Construct k-mer statistics, profile genome characteristics, and assemble reads into contigs.
+keywords:
+  - assembly
+  - kmer
+  - genomescope
+  - megahit
+components:
+  - MERYL_COUNT
+  - MERYL_UNIONSUM
+  - MERYL_HISTOGRAM
+  - GENOMESCOPE2
+  - MEGAHIT
+input:
+  - fastp_reads:
+      type: list
+      description: Channel of tuples `[meta_map, reads]` containing trimmed read pairs.
+output:
+  - megahit_assembled_contigs:
+      type: list
+      description: Channel emitting tuples `[meta_map, contig_fasta]` from MEGAHIT.
+  - meryl_db:
+      type: list
+      description: Channel emitting tuples `[meta_map, meryl_database]` summarising k-mers.
+  - genomescope_summary:
+      type: list
+      description: Channel emitting tuples `[meta_map, summary_txt]` with GenomeScope2 estimates.
+  - multiqc_files:
+      type: list
+      description: Placeholder channel for MultiQC files, currently unused.
+  - versions:
+      type: list
+      description: Collection of `versions.yml` files emitted by constituent modules.
+authors:
+  - "@tpeirce"
+maintainers:
+  - "@tpeirce"

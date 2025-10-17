@@ -1,15 +1,15 @@
 name: bbmap_filterbyname
-description: Filter out sequences by sequence header name(s)
+description: Filter assembly contigs based on an action report and summarise excluded fragments.
 keywords:
-  - fastq
   - fasta
+  - assembly
   - filter
+  - bbmap
 tools:
   - bbmap:
-      description: BBMap is a short read aligner, as well as various other bioinformatic
-        tools.
-      homepage: https://jgi.doe.gov/data-and-tools/software-tools/bbtools/bb-tools-user-guide/clumpify-guide/
-      documentation: https://www.biostars.org/p/225338/
+      description: Suite of bioinformatics tools for manipulating and filtering assemblies and reads.
+      homepage: https://jgi.doe.gov/data-and-tools/software-tools/bbtools/bb-tools-user-guide/
+      documentation: https://jgi.doe.gov/data-and-tools/software-tools/bbtools/bb-tools-user-guide/filterbyname/
       licence: ["UC-LBL license (see package)"]
       identifier: biotools:bbmap
 
@@ -18,53 +18,54 @@ input:
         type: map
         description: |
           Groovy Map containing sample information
-          e.g. [ id:'test', single_end:false ]
+          e.g. [ id:'sample', assembly_prefix:'assembly' ]
+    - action_report:
+        type: file
+        description: Decontamination action report describing contigs to exclude, trim or review.
     - reads:
         type: file
-        description: |
-          List of input FastQ files of size 1 and 2 for single-end and
-          paired-end data, respectively.
-  - - names_to_filter:
-        type: string
-        description: |
-          String containing names of reads to filter out of the fastq files.
+        description: Assembly FASTA file to be filtered.
   - - output_format:
         type: string
-        description: |
-          String with the format of the output file, e.g. fastq.gz, fasta, fasta.bz2
-  - - interleaved_output:
-        type: boolean
-        description: |
-          Whether to produce an interleaved fastq output file
+        description: Optional format string passed via `task.ext.args`; retained for pipeline compatibility.
+
 output:
-  - reads:
+  - first_filtered:
       - meta:
           type: map
           description: |
             Groovy Map containing sample information
-            e.g. [ id:'test', single_end:false ]
-      - "*.${output_format}":
+            e.g. [ id:'sample', assembly_prefix:'assembly' ]
+      - "*.rf.fa":
           type: file
-          description: The trimmed/modified fastq reads
-          pattern: "*${output_format}"
-  - log:
-      - meta:
-          type: map
-          description: |
-            Groovy Map containing sample information
-            e.g. [ id:'test', single_end:false ]
-      - "*.log":
+          description: Assembly with contigs flagged for review/exclusion removed.
+          pattern: "*.rf.fa"
+  - filter_report:
+      - "*.filter_report.txt":
           type: file
-          description: filterbyname.sh log file
-          pattern: "*.filterbyname.log"
+          description: Summary of the number and total length of contigs excluded, trimmed and reviewed.
+          pattern: "*.filter_report.txt"
+  - names_to_filter:
+      - "*.review_scaffolds_1kb.txt":
+          type: file
+          description: List of contig identifiers flagged for review under 1 kb.
+          pattern: "*.review_scaffolds_1kb.txt"
+  - contigs_under_500bp:
+      - "*.contig_count_500bp.txt":
+          type: file
+          description: Count of contigs remaining below 500 bp length after filtering.
+          pattern: "*.contig_count_500bp.txt"
   - versions:
       - versions.yml:
           type: file
-          description: File containing software versions
+          description: File containing software versions.
           pattern: "versions.yml"
+
 authors:
   - "@tokarevvasily"
   - "@sppearce"
+  - "@tpeirce"
 
 maintainers:
   - "@sppearce"
+  - "@tpeirce"

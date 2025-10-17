@@ -4,37 +4,69 @@
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
 
-include { softwareVersionsToYAML            } from '../../nf-core/utils_nfcore_pipeline'
-
 //QC
 include { BUSCO_BUSCO                       } from '../../../modules/nf-core/busco/busco'
+include { EXTRACT_BUSCO_SEQUENCES           } from '../../../modules/local/extract_busco_sequences'
 include { BWAMEM2_INDEX                     } from '../../../modules/nf-core/bwamem2/index'
 include { BWAMEM2_MEM                       } from '../../../modules/nf-core/bwamem2/mem'
 include { MERQURY_MERQURY                   } from '../../../modules/nf-core/merqury/merqury'
 include { GFASTATS                          } from '../../../modules/nf-core/gfastats'
 
 
-//FUNCTION: Join two [meta, value] channels on a set of keys, then merge metas.
+//FUNCTION: Join multiple [meta, value] channels on a set of keys, then merge metas.
 //          By default joins on id, run, date, prefix.
-def join_on_keys_and_merge = { ch1, ch2, List keys = ['id','run','date','prefix'] ->
-
-    def keyer = { Map m -> keys.collect { k ->
-        if( !m.containsKey(k) )
-            throw new IllegalArgumentException("Missing meta key '${k}' in ${m}")
-        m[k]
-    }}
-
-    def c1 = ch1.map { meta, val -> [ keyer(meta), [meta, val] ] }
-    def c2 = ch2.map { meta, val -> [ keyer(meta), [meta, val] ] }
-
-    c1.join(c2).map { keyvals, left, right ->
-        def (m1, v1) = left
-        def (m2, v2) = right
-        // Merge maps; values from m2 override m1 on duplicate keys
-        // Return as tuple: [merged_meta, v1, v2]
-        return tuple(m1 + m2, v1, v2)
+def join_on_keys_and_merge = { channels, List keys = ['id','run','date','prefix'] ->
+    // println "DEBUG: Starting join with ${channels.size()} channels"
+    
+    def keyer = { Map m -> 
+        def keyVals = keys.collect { k ->
+            if( !m.containsKey(k) )
+                throw new IllegalArgumentException("Missing meta key '${k}' in ${m}")
+            m[k]
+        }
+        // println "DEBUG: Generated key for ${m.id}: ${keyVals}"
+        return keyVals
+    }
+    
+    // Convert all channels to [key, [meta, value]] format
+    def keyedChannels = channels.collect { ch ->
+        ch.map { meta, val -> 
+            def keyVals = keyer(meta)
+            [ keyVals, [meta, val] ] 
+        }
+        // .view { "DEBUG: Keyed channel entry: ${it[0]} -> meta.id: ${it[1][0].id}" }
+    }
+    
+    // Join all channels sequentially
+    def joined = keyedChannels[0]
+        // .view { "DEBUG: First channel entry: ${it}" }
+    for (int i = 1; i < keyedChannels.size(); i++) {
+        // println "DEBUG: About to join with channel ${i+1}"
+        joined = joined.join(keyedChannels[i])
+        // joined = joined.view { "DEBUG: After joining with channel ${i+1}: ${it}" }
+    }
+    
+    // Merge metas and extract values
+    joined.map { tuple ->
+        // println "DEBUG: Final mapping tuple: ${tuple}"
+        def keyvals = tuple[0]
+        def metaVals = tuple[1..-1]
+        
+        def merged_meta = [:]
+        def values = []
+        
+        metaVals.each { metaVal ->
+            def (meta, val) = metaVal
+            merged_meta = merged_meta + meta
+            values << val
+        }
+        
+        def result = [merged_meta] + values
+        // println "DEBUG: Final result: ${result[0].id}"
+        return result
     }
 }
+
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -46,9 +78,10 @@ workflow GENOME_QC {
 
     take:
     fastp // tuple val(meta), path('*.fastq.gz'),
+    genomescope_summary // tuple val(meta), path("${meta.prefix}_summary.txt") 
     assembly // tuple val(meta), path(assembly)
     meryl_db // tuple val(meta), path(meryl_dir)
-    genomescope_summary // tuple val(meta), path("${meta.prefix}_summary.txt") 
+
     
     main:
 
@@ -64,14 +97,15 @@ workflow GENOME_QC {
 */
 
     // Determining which BUSCO database to use based on meta.class
-    ch_with_busco_db = assembly.map { meta, assembly ->
+    ch_with_busco_db = assembly.map { meta, file ->
         def busco_db = meta.class == 'Actinopteri' ? 
             params.busco_acti_db : 
             params.busco_vert_db
         
-        return [meta, assembly, busco_db]
+        return [meta, file, busco_db]
     }
 
+    
     //
     // MODULE: Run BUSCO
     //
@@ -82,6 +116,18 @@ workflow GENOME_QC {
     )
     ch_versions = ch_versions.mix(BUSCO_BUSCO.out.versions.first())
 
+    // Channel for extract busco sequences
+    ch_extract_busco_input = join_on_keys_and_merge([BUSCO_BUSCO.out.full_table, assembly])
+    // Returns: tuple val(meta), path(busco_table), path(genome_fasta)
+
+
+    //
+    // MODULE: Extract the coding sequences from the genome for all the busco results
+    //
+
+    EXTRACT_BUSCO_SEQUENCES(ch_extract_busco_input)
+
+
     //
     // MODULE: Run BWA index
     //
@@ -91,8 +137,10 @@ workflow GENOME_QC {
     )
     ch_versions = ch_versions.mix(BWAMEM2_INDEX.out.versions.first())
 
-    ch_tmp = join_on_keys_and_merge(fastp, BWAMEM2_INDEX.out.index)
-    ch_bwamem2_mem_input = ch_tmp.join(assembly, by:0)
+    
+    // Channel for BWA mem
+    ch_bwamem2_mem_input = join_on_keys_and_merge([fastp, BWAMEM2_INDEX.out.index, assembly])
+    // Returns: [merged_meta, fastp_files, index, assembly]
 
     //
     // MODULE: Run BWA align
@@ -103,12 +151,10 @@ workflow GENOME_QC {
     )
     ch_versions = ch_versions.mix(BWAMEM2_MEM.out.versions.first())
 
-    //
+
     // Channel for merqury
-    //
-
-    ch_merqury_input = join_on_keys_and_merge(meryl_db, assembly)
-
+    ch_merqury_input = join_on_keys_and_merge([meryl_db, assembly])
+    
     //
     // MODULE: Run Merqury
     //
@@ -117,12 +163,12 @@ workflow GENOME_QC {
         ch_merqury_input // tuple val(meta), path(meryl_db), path(assembly)
     )
     ch_versions = ch_versions.mix(MERQURY_MERQURY.out.versions.first())
+    ch_merqury_results = MERQURY_MERQURY.out.stats.join(MERQURY_MERQURY.out.assembly_qv, by:0) // channel: tuple val(meta), path("*.completeness.stats")
 
-    //
+
     // Channel for gfa stats
-    //
+    ch_gfastats_input = join_on_keys_and_merge([assembly, genomescope_summary])
 
-    ch_gfastats_input = join_on_keys_and_merge(assembly, genomescope_summary)
 
     //
     // MODULE: Run gfa stats
@@ -134,20 +180,13 @@ workflow GENOME_QC {
     )
     ch_versions = ch_versions.mix(GFASTATS.out.versions.first())
 
-    //
-    // Collate and save software versions
-    //
-    softwareVersionsToYAML(ch_versions)
-        .collectFile(
-            storeDir: "${params.outdir}/pipeline_info",
-            name: 'nf_core_'  +  'oceangenomes_draftgenomes_software_'  + 'mqc_'  + 'versions.yml',
-            sort: true,
-            newLine: true
-        ).set { ch_collated_versions }
+
 
     emit:
-    results = GFASTATS.out.assembly_summary
+    busco_short_summary = BUSCO_BUSCO.out.short_summaries_txt // channel: tuple val(meta), path('*.busco.short_summary.txt')
+    merqury_results = ch_merqury_results // channel: tuple val(meta), path("*.completeness.stats"), path("${prefix}.qv")
+    gfastats_results = GFASTATS.out.assembly_summary // channel: tuple val(meta), path("*.assembly_summary")
     multiqc_files = ch_multiqc_files             // channel: [ path(multiqc_files) ]
-    versions = ch_collated_versions              // channel: [ path(versions.yml) ]
+    versions = ch_versions              // channel: [ path(versions.yml) ]
 }
 

@@ -66,17 +66,6 @@ workflow DOWNLOAD_READS {
         params.interleave// val(interleave)
     )
 
-    //
-    // Collate and save software versions
-    //
-
-    softwareVersionsToYAML(ch_versions)
-        .collectFile(
-            storeDir: "${params.outdir}/pipeline_info",
-            name: 'nf_core_'  +  'oceangenomes_draftgenomes_software_'  + 'mqc_'  + 'versions.yml',
-            sort: true,
-            newLine: true
-        ).set { ch_collated_versions }
 
     //
     // Emit outputs
@@ -85,6 +74,6 @@ workflow DOWNLOAD_READS {
     emit:
     repaired_reads = BBMAP_REPAIR.out.repaired // channel for fastp - tuple val(ogid), path("*.{R1,R2}.fq.gz")
     multiqc_files = ch_multiqc_files             // channel: [ path(multiqc_files) ]
-    versions = ch_collated_versions              // channel: [ path(versions.yml) ]
+    versions = ch_versions              // channel: [ path(versions.yml) ]
 }
 

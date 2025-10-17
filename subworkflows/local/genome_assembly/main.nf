@@ -3,13 +3,14 @@
     IMPORT MODULES / SUBWORKFLOWS / FUNCTIONS
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
-include { softwareVersionsToYAML    } from '../../nf-core/utils_nfcore_pipeline'
 
 //assembly
 include { MERYL_COUNT               } from '../../../modules/nf-core/meryl/count'
 include { MERYL_UNIONSUM            } from '../../../modules/nf-core/meryl/unionsum'
 include { MERYL_HISTOGRAM           } from '../../../modules/nf-core/meryl/histogram'
 include { GENOMESCOPE2              } from '../../../modules/nf-core/genomescope2'
+include { CALCULATE_SEQUENCING_COVERAGE  } from '../../../modules/local/coverage/calculations'
+include { COMPILE_JSON_TO_CSV       } from '../../../modules/local/coverage/compile'
 include { MEGAHIT                   } from '../../../modules/nf-core/megahit'
 
 
@@ -23,6 +24,7 @@ workflow GENOME_ASSEMBLY {
 
     take:
     fastp_reads // tuple val(meta), path('*.fastq.gz')
+    fastp_json
     //samplesheet // channel: samplesheet read in from --input
     
     main:
@@ -70,6 +72,25 @@ workflow GENOME_ASSEMBLY {
     )
     ch_versions = ch_versions.mix(GENOMESCOPE2.out.versions.first())
 
+    ch_coverage_calc = fastp_json.join(GENOMESCOPE2.out.summary, by:0)
+    
+    //
+    // MODULE: Calculate Sequencing Coverage
+    //
+    
+    CALCULATE_SEQUENCING_COVERAGE(
+        ch_coverage_calc
+    )
+    
+    // Collect all JSON outputs from coverage calculation to compile into a single CSV
+    collected_jsons = CALCULATE_SEQUENCING_COVERAGE.out.coverage_json.collect()
+    
+    //
+    // MODULE: Compile samples coverage calculations into one CSV
+    //
+
+    COMPILE_JSON_TO_CSV(collected_jsons)
+
     //
     // MODULE: Run Megahit
     //
@@ -80,18 +101,6 @@ workflow GENOME_ASSEMBLY {
     ch_versions = ch_versions.mix(MEGAHIT.out.versions.first())
 
     //
-    // Collate and save software versions
-    //
-    softwareVersionsToYAML(ch_versions)
-        .collectFile(
-            storeDir: "${params.outdir}/pipeline_info",
-            name: 'nf_core_'  +  'oceangenomes_draftgenomes_software_'  + 'mqc_'  + 'versions.yml',
-            sort: true,
-            newLine: true
-        ).set { ch_collated_versions }
-
-
-    //
     // Emit outputs
     //
 
@@ -100,7 +109,7 @@ workflow GENOME_ASSEMBLY {
     meryl_db = MERYL_UNIONSUM.out.meryl_db  // need to check COUNT output to make sure im passing the right one
     genomescope_summary = GENOMESCOPE2.out.summary // pass into genome QC for size of genome (unique length)
     multiqc_files = ch_multiqc_files             // channel: [ path(multiqc_files) ]
-    versions = ch_collated_versions              // channel: [ path(versions.yml) ]
+    versions = ch_versions              // channel: [ path(versions.yml) ]
 
 
 

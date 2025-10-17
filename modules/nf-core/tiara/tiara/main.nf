@@ -15,7 +15,8 @@ process TIARA_TIARA {
     tuple val(meta), path("${tiara_report}")    , emit: classifications
     tuple val(meta), path("${removal}")       , emit: contig_removal
     tuple val(meta), path("log_*.{txt,txt.gz}") , emit: log
-    tuple val(meta), path("*.{fasta,fasta.gz}") , emit: fasta, optional: true
+    tuple val(meta), path("*.tiara_filter_summary.txt") , emit: summary
+    // tuple val(meta), path("*.{fasta,fasta.gz}") , emit: fasta, optional: true
     path "versions.yml"                         , emit: versions
 
 

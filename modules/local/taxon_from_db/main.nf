@@ -1,6 +1,6 @@
 process TAXON {
     tag "$meta.id"
-    label 'process_medium'
+    label 'process_low'
     container "${ workflow.containerEngine == 'singularity' && !task.ext.singularity_pull_docker_container ?
         'docker://tylerpeirce/psycopg2:0.1' :
         'tylerpeirce/psycopg2:0.1' }"

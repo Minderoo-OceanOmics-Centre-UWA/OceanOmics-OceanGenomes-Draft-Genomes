@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/nf-core/modules/master/modules/meta-schema.json
+name: "compile_json_to_csv"
+description: Compile multiple JSON files into a single CSV file
+keywords:
+  - json
+  - csv
+  - compile
+  - aggregate
+tools:
+  - "python":
+      description: "Python programming language"
+      homepage: "https://www.python.org/"
+      documentation: "https://docs.python.org/"
+
+input:
+  - json_files:
+      type: file
+      description: JSON files to be compiled into CSV
+      pattern: "*.json"
+
+output:
+  - csv:
+      type: file
+      description: Compiled CSV file containing data from all JSON files
+      pattern: "*.csv"
+  - versions:
+      type: file
+      description: File containing software versions
+      pattern: "versions.yml"
+
+authors:
+  - "@your_username"
+maintainers:
+  - "@your_username"

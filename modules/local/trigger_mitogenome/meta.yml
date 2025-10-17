@@ -1,0 +1,31 @@
+name: trigger_mitogenome
+description: Create a reusable shell script to launch the mitogenome subworkflow once all samples are processed.
+keywords:
+  - workflow
+  - orchestration
+  - mitogenome
+  - utility
+tools:
+  - bash:
+      description: Unix shell used to render the launch script.
+      homepage: https://www.gnu.org/software/bash/
+      documentation: https://www.gnu.org/software/bash/manual/bash.html
+      licence: ["GPL-3.0-or-later"]
+
+input:
+  - - all_samples:
+        type: list
+        description: Collection emitted after all samples are processed; used only for synchronisation.
+
+output:
+  - mito_run_script:
+      - "run_*.sh":
+          type: file
+          description: Timestamped shell script to launch the mitogenome workflow.
+          pattern: "run_*.sh"
+
+authors:
+  - "@tpeirce"
+
+maintainers:
+  - "@tpeirce"

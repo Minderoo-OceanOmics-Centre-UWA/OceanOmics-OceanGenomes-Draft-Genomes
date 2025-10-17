@@ -9,7 +9,7 @@
 */
 
 // Taxon module, specific to OceanOmics DQL database
-include { TAXON                     } from '../../../modules/local/taxon_from_db'
+
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -73,53 +73,21 @@ workflow samplesheetHybrid {
             log.info "DEBUG type: ${repaired_files[0].class}"
             
             def meta_id = sample_id.split('\\.')[0] // Extract meta_id which is the first part of sample name seperated by .
-            
+            def date = params.run.tokenize('_')[1] // Extract date from run parameter
+
             def meta = [
                 id: meta_id,
                 run: params.run,
-                date: params.date,
-                prefix: "${meta_id}.ilmn.${params.date}"
+                date: date,
+                prefix: "${meta_id}.ilmn.${date}"
             ]
 
             tuple(meta, repaired_files)
         }
 
-    //
-    // MODULE: Retrieve NCBI taxon ID and taxonomic class from OceanOmics SQL database.
-    //      Taxon ID and class can be provided in sample sheet if running outside of OceanOmics
-    //
-
-    TAXON (
-        ch_samplesheet_from_repaired, 
-        params.sql_config
-    )
-    .map { meta, repaired_files, taxon_csv_file ->
-        def taxon_row = taxon_csv_file
-            .splitCsv(header: true)
-            .first()
-
-        def updated_meta = meta + [
-            nom_species_id: taxon_row.nominal_species_id,
-            taxon_id: taxon_row.taxon_id,
-            class   : taxon_row.class
-        ]
-
-        // 🐛 DEBUG print to log
-        log.info "🔍 Updated meta for ${updated_meta.id}: ${updated_meta}"
-
-        tuple(updated_meta, repaired_files)
-    }
-    .set { ch_samplesheet_from_repaired_with_taxon }
-
-    // Error code for if no taxon_id found
-    ch_samplesheet_from_repaired_with_taxon.map { meta, repaired_files ->
-        if (!meta.taxon_id) error "❗ taxon_id not found for sample ${meta.id}"
-        tuple(meta, repaired_files)
-    }
-
 
     // Combine both channels (only one will have data)
-    ch_samplesheet = ch_samplesheet_from_csv.mix(ch_samplesheet_from_repaired_with_taxon)
+    ch_samplesheet = ch_samplesheet_from_csv.mix(ch_samplesheet_from_repaired)
 
     emit:
     samplesheet = ch_samplesheet

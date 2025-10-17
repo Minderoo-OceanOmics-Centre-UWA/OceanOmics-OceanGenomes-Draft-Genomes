@@ -7,9 +7,6 @@
 include { FASTQC                 } from '../../../modules/nf-core/fastqc'
 include { FASTP                  } from '../../../modules/nf-core/fastp'
 
-// Helper functions
-include { softwareVersionsToYAML } from '../../nf-core/utils_nfcore_pipeline'
-
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     RUN FASTP AND FASQ WORKFLOW
@@ -61,24 +58,12 @@ workflow FASTP_FASTQC {
 
 
     //
-    // Collate and save software versions
-    //
-
-    softwareVersionsToYAML(ch_versions)
-        .collectFile(
-            storeDir: "${params.outdir}/pipeline_info",
-            name: 'nf_core_'  +  'oceangenomes_draftgenomes_software_'  + 'mqc_'  + 'versions.yml',
-            sort: true,
-            newLine: true
-        ).set { ch_collated_versions }
-
-    
-    //
     // Emit outputs
     //
 
     emit:
     fastp_reads = FASTP.out.reads // channel to the mitogenome pipeline, and genome assembly tuple val(meta), path('*.fastq.gz')
+    fastp_json = FASTP.out.json // channel to the mitogenome pipeline, tuple val(meta), path('*.json')
     multiqc_files = ch_multiqc_files             // channel: [ path(multiqc_files) ]
-    versions = ch_collated_versions              // channel: [ path(versions.yml) ]
+    versions = ch_versions              // channel: [ path(versions.yml) ]
 }

@@ -13,9 +13,9 @@ process BBMAP_FILTERBYNAME {
  
     output:
     tuple val(meta), path("$first_filtered_reads")  , emit: first_filtered
-    path ("$filter_report")                         , emit: filter_report
-    path("$names_to_filter")                        , emit: names_to_filter 
-    path("${meta.prefix}.contig_count_500bp.txt")   , emit: contigs_under_500bp
+    tuple val(meta), path ("$filter_report")                         , emit: filter_report
+    tuple val(meta), path("$names_to_filter")                        , emit: names_to_filter 
+    tuple val(meta), path("${meta.prefix}.contig_count_500bp.txt")   , emit: contigs_under_500bp
     path "versions.yml"                             , emit: versions
 
     when:
@@ -73,8 +73,14 @@ process BBMAP_FILTERBYNAME {
     echo "REVIEW \$count \$bp" | tee -a $filter_report
   
     #generate a txt file with the name of the contigs that are in review that are less that 1000bp.
-    grep -w REVIEW "${action_report}" | awk '\$4 <= 1000' | awk '{print \$1}' > $names_to_filter
+    if [[ -n "\$review_lines" ]]; then
+        echo "\$review_lines" | awk '\$4 <= 1000 {print \$1}' > $names_to_filter
+    else
+        : > $names_to_filter
+    fi
 
+    # First pass of filtering - remove all EXCLUDE and TRIM contigs
+    # REVIEW contigs are retained for manual review
     filterbyname.sh \\
         -Xmx${avail_mem}g \\
         $input \\

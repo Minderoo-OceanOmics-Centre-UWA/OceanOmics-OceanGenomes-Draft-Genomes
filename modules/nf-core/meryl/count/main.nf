@@ -30,7 +30,7 @@ process MERYL_COUNT {
             memory=${reduced_mem} \\
             ${args} \\
             \$READ \\
-            output ${prefix}.\${READ%.f*}.meryl
+            output \${READ%.f*}.meryl
     done
 
     cat <<-END_VERSIONS > versions.yml

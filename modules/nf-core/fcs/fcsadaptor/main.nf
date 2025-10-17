@@ -1,6 +1,6 @@
 process FCS_FCSADAPTOR {
     tag "$meta.id"
-    label 'process_low'
+    label 'process_medium'
 
     // WARN: Version information not provided by tool on CLI. Please update version string below when bumping container versions.
     container "${ workflow.containerEngine == 'singularity' && !task.ext.singularity_pull_docker_container ?
@@ -39,7 +39,7 @@ process FCS_FCSADAPTOR {
     if (workflow.profile.tokenize(',').intersect(['conda', 'mamba']).size() >= 1) {
         error "FCS_FCSADAPTOR module does not support Conda. Please use Docker / Singularity / Podman instead."
     }
-    def args = task.ext.args ?: '--prok' // --prok || --euk
+    def args = task.ext.args ?: '--euk' // --prok || --euk
     def prefix = task.ext.prefix ?: "${meta.prefix}"
     def FCSADAPTOR_VERSION = '0.5.0' // WARN: Version information not provided by tool on CLI. Please update this string when bumping container versions.
     """

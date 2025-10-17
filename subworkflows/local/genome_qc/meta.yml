@@ -1,0 +1,41 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/nf-core/modules/master/subworkflows/yaml-schema.json
+name: "GENOME_QC"
+description: Generate assembly quality metrics including BUSCO completeness, mapping statistics, k-mer quality, and assembly summaries.
+keywords:
+  - qc
+  - assembly
+  - busco
+  - merqury
+components:
+  - BUSCO_BUSCO
+  - BWAMEM2_INDEX
+  - BWAMEM2_MEM
+  - MERQURY_MERQURY
+  - GFASTATS
+input:
+  - fastp:
+      type: list
+      description: Channel of tuples `[meta_map, reads]` with trimmed sequencing reads.
+  - assembly:
+      type: list
+      description: Channel of tuples `[meta_map, assembly_fasta]` representing cleaned contigs.
+  - meryl_db:
+      type: list
+      description: Channel of tuples `[meta_map, meryl_database]` for Merqury evaluation.
+  - genomescope_summary:
+      type: list
+      description: Channel of tuples `[meta_map, summary_txt]` containing GenomeScope2 estimates.
+output:
+  - results:
+      type: list
+      description: Channel emitting tuples `[meta_map, gfastats_summary]` aggregating QC metrics per sample.
+  - multiqc_files:
+      type: list
+      description: Placeholder channel for MultiQC files, currently unused.
+  - versions:
+      type: list
+      description: Collection of `versions.yml` files emitted by constituent modules.
+authors:
+  - "@tpeirce"
+maintainers:
+  - "@tpeirce"

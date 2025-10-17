@@ -1,0 +1,33 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/nf-core/modules/master/subworkflows/yaml-schema.json
+name: "GENOME_DECONTAMINATION"
+description: Sequentially filter assembled contigs for contamination, adaptors, and organellar sequences.
+keywords:
+  - decontamination
+  - assembly
+  - bbmap
+  - fcsgx
+components:
+  - FCSGX_RUNGX
+  - FCSGX_CLEANGENOME
+  - BBMAP_FILTERBYNAME
+  - BBMAP_REFORMAT
+  - FCS_FCSADAPTOR
+  - TIARA_TIARA
+input:
+  - genome_assembly:
+      type: list
+      description: Channel of tuples `[meta_map, contig_fasta]` produced by the assembly stage.
+output:
+  - decontamined_assembled_reads:
+      type: list
+      description: Channel emitting tuples `[meta_map, filtered_fasta]` with contaminants removed.
+  - multiqc_files:
+      type: list
+      description: Placeholder channel for MultiQC files, currently unused.
+  - versions:
+      type: list
+      description: Collection of `versions.yml` files emitted by constituent modules.
+authors:
+  - "@tpeirce"
+maintainers:
+  - "@tpeirce"

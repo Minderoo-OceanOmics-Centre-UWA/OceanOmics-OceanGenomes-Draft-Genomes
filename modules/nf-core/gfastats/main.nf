@@ -25,7 +25,7 @@ process GFASTATS {
     def output_sequences = out_fmt ? "--out-format ${prefix}.${out_fmt}" : ""
     """
     # Get genomesize from $summary file
-    genome_size=\$(cat $summary | grep 'Genome Unique Length' | grep -o 'bp.*' | sed 's/bp//g' | sed 's/ //g' | sed 's/,//g')
+    genome_size=\$(cat $summary | grep 'Genome Haploid Length' | grep -o 'bp.*' | sed 's/bp//g' | sed 's/ //g' | sed 's/,//g')
 
     gfastats \\
         $args \\

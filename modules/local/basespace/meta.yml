@@ -1,0 +1,39 @@
+name: basespace_download
+description: Download sequencing data from Illumina BaseSpace using the BaseSpace CLI.
+keywords:
+  - basespace
+  - fastq
+  - illumina
+  - download
+tools:
+  - basespace-cli:
+      description: Command-line utility for interacting with Illumina BaseSpace runs.
+      homepage: https://developer.basespace.illumina.com/docs/content/documentation/cli/cli-overview
+      documentation: https://help.basespace.illumina.com/articles/illumina-documentation/basespace-cli-overview/
+      licence: ["Illumina BaseSpace CLI Terms of Use"]
+
+input:
+  - - run_id:
+        type: string
+        description: Illumina BaseSpace run identifier to download.
+    - config:
+        type: file
+        description: Configuration or credentials file required by the BaseSpace CLI.
+
+output:
+  - fastqs:
+      - "*.fastq.gz":
+          type: file
+          description: FASTQ files downloaded from the BaseSpace run.
+          pattern: "*fastq.gz"
+  - jsons:
+      - "*.json":
+          type: file
+          description: Metadata JSON files emitted by the BaseSpace CLI download.
+          pattern: "*.json"
+
+authors:
+  - "@tpeirce"
+
+maintainers:
+  - "@tpeirce"

@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/nf-core/modules/master/subworkflows/yaml-schema.json
+name: "FASTP_FASTQC"
+description: Run FastQC and Fastp on sequencing reads and collate reports for MultiQC.
+keywords:
+  - fastq
+  - qc
+  - trimming
+  - fastp
+components:
+  - FASTQC
+  - FASTP
+input:
+  - samplesheet:
+      type: list
+      description: Channel of tuples `[meta_map, reads]` describing each library to be processed.
+output:
+  - fastp_reads:
+      type: list
+      description: Channel emitting tuples `[meta_map, trimmed_reads]` from Fastp for downstream steps.
+  - multiqc_files:
+      type: list
+      description: Collection of FastQC zip archives and Fastp JSON reports for MultiQC.
+  - versions:
+      type: file
+      description: Collated software versions written to `pipeline_info/`.
+authors:
+  - "@tpeirce"
+maintainers:
+  - "@tpeirce"

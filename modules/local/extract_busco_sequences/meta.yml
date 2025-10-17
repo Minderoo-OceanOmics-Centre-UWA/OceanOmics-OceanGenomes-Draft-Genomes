@@ -1,0 +1,58 @@
+name: "extract_busco_sequences"
+description: Extract BUSCO gene sequences from genome assembly and create concatenated FASTA
+keywords:
+  - busco
+  - genome
+  - sequences
+  - extraction
+  - quality_control
+tools:
+  - "bedtools":
+      description: "A set of tools for a wide-range of genomics analysis tasks."
+      homepage: "https://bedtools.readthedocs.io/"
+      documentation: "https://bedtools.readthedocs.io/"
+      tool_dev_url: "https://github.com/arq5x/bedtools2"
+      licence: "['MIT']"
+  - "seqtk":
+      description: "A fast and lightweight tool for processing sequences in the FASTA or FASTQ format."
+      homepage: "https://github.com/lh3/seqtk"
+      documentation: "https://github.com/lh3/seqtk"
+      tool_dev_url: "https://github.com/lh3/seqtk"
+      licence: "['MIT']"
+
+input:
+  - meta:
+      type: map
+      description: |
+        Groovy Map containing sample information
+        e.g. [ id:'test' ]
+  - busco_table:
+      type: file
+      description: BUSCO full_table.tsv output file
+      pattern: "*.{tsv,txt}"
+  - genome_fasta:
+      type: file
+      description: Genome assembly FASTA file
+      pattern: "*.{fasta,fa,fna}"
+
+output:
+  - meta:
+      type: map
+      description: |
+        Groovy Map containing sample information
+        e.g. [ id:'test' ]
+  - fasta:
+      type: file
+      description: Concatenated FASTA file with extracted BUSCO sequences
+      pattern: "*.busco_sequences.fasta"
+  - bed:
+      type: file
+      description: BED file with BUSCO gene coordinates
+      pattern: "*.busco_coordinates.bed"
+  - versions:
+      type: file
+      description: File containing software versions
+      pattern: "versions.yml"
+
+authors:
+  - "@tpeirce"

@@ -17,8 +17,8 @@ process GENOMESCOPE2 {
     tuple val(meta), path("${prefix}_transformed_log_plot.png")   , emit: transformed_log_plot_png
     tuple val(meta), path("${prefix}_model.txt")                  , emit: model
     tuple val(meta), path("${prefix}_summary.txt")                , emit: summary
-    tuple val(meta), path("${prefix}_lookup_table.txt")           , emit: lookup_table, optional: true
-    tuple val(meta), path("${prefix}_fitted_hist.png")            , emit: fitted_histogram_png, optional: true
+    // tuple val(meta), path("${prefix}_lookup_table.txt")           , emit: lookup_table, optional: true
+    // tuple val(meta), path("${prefix}_fitted_hist.png")            , emit: fitted_histogram_png, optional: true
     path "versions.yml"                                           , emit: versions
 
     when:
@@ -26,13 +26,13 @@ process GENOMESCOPE2 {
 
     script:
     def args = task.ext.args ?: '-k 21 -m 1000'
-    prefix = task.ext.prefix ?: "${meta.prefix}"
+    prefix = task.ext.prefix ?: "${meta.prefix}_genomescope2"
     """
     genomescope2 \\
         --input $histogram \\
         $args \\
         --output . \\
-        --name_prefix $prefix
+        --name_prefix ${prefix}
 
     test -f "fitted_hist.png" && mv fitted_hist.png ${prefix}_fitted_hist.png
     test -f "lookup_table.txt" && mv lookup_table.txt ${prefix}_lookup_table.txt

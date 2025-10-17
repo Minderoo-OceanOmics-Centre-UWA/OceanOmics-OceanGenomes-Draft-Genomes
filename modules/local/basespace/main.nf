@@ -10,14 +10,13 @@ process BASESPACE {
     path config
 
     output:
-    path "*fastq.gz", emit: fastqs
-    path "*json"    , emit: jsons
+    path "*/*fastq.gz", emit: fastqs
+    path "*/*json"    , emit: jsons
 
     script:
     """
     cp /bin/bs .
     RUNID=\$(./bs list run | grep $run_id | awk '{print \$4}')
-    mkdir -p $run_id
 
     #this creates the list of all the lanes for downloading
     ./bs list dataset --input-run \$RUNID | awk '{print \$2;}' | grep 'OG' > ${run_id}.prefix.txt
@@ -27,7 +26,7 @@ process BASESPACE {
     for PREFIX in \$(cat ${run_id}.prefix.txt); do
         ID=\$(./bs list dataset --input-run \$RUNID | grep \$PREFIX | awk '{print \$4;}')
         echo \$PREFIX \$ID ">>" $run_id
-        ./bs download dataset ---input-run \$RUNID -i \$ID -o .
+        ./bs download dataset ---input-run \$RUNID -i \$ID -o \$PREFIX
     done
     
     """

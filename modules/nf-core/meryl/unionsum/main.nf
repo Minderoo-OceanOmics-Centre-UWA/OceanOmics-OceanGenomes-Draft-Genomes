@@ -23,7 +23,6 @@ process MERYL_UNIONSUM {
     def prefix = task.ext.prefix ?: "${meta.prefix}"
     """
     meryl union-sum \\
-        k=$kvalue \\
         threads=$task.cpus \\
         memory=${task.memory.toGiga()} \\
         $args \\

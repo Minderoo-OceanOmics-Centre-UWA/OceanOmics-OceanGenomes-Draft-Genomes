@@ -1,1 +1,0 @@
-OG000.test.000000.getorg1770.emma102	gb|EU741755.1|	512202	Lycodes brevicaudus	Lycodes brevicaudus	Eukaryota	98.475	590	1692	589	8	1	1	937	1526	1	589	512202 Lycodes brevicaudus EU741755.1 Lycodes brevicauda isolate 208 16S ribosomal RNA gene, partial sequence; mitochondrial	0.0	1021	35	35	250723	16s

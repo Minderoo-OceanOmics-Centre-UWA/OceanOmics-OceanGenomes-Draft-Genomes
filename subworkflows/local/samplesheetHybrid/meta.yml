@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/nf-core/modules/master/subworkflows/yaml-schema.json
+name: "samplesheetHybrid"
+description: Build a unified samplesheet channel from either a user-provided CSV or repaired read pairs.
+keywords:
+  - samplesheet
+  - metadata
+  - fastq
+components: []
+input:
+  - repaired_ch:
+      type: list
+      description: Channel of tuples `[sample_id, repaired_reads]` generated after BaseSpace download and repair.
+  - samplesheet:
+      type: list
+      description: Channel containing optional CSV samplesheet path(s); may emit zero records.
+output:
+  - samplesheet:
+      type: list
+      description: Channel emitting tuples `[meta_map, reads]` used throughout the pipeline.
+authors:
+  - "@tpeirce"
+maintainers:
+  - "@tpeirce"
