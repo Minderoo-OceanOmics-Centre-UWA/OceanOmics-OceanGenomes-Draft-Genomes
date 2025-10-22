@@ -10,16 +10,15 @@ process PUSH_FASTP_RESULTS {
     path config
 
     output:
-    path "${meta.id}.lca_blast.upload.txt", emit: upload
+    path "${meta.id}.fastp.upload.txt", emit: upload
     path "versions.yml"                   , emit: versions
 
     script:
     """
     # Push the results to SQL database
-    push_fastp_to_sqldb.py \
-        -c $config \
-        -f ${fastp_json}
-        ${meta.id}.fastp_results.txt
+    push_fastp_to_sqldb.py \\
+        -c $config \\
+        -f ${fastp_json} \\
         > ${meta.id}.fastp.upload.txt
 
     cat <<-END_VERSIONS > versions.yml

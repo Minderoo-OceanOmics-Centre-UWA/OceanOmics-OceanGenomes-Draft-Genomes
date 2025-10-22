@@ -1,0 +1,33 @@
+#!/bin/bash
+. ~/.bashrc
+module load python/3.11.6
+
+# Update the variable RUN for the run that you are processing. All other variables are set dynamically
+# Make sure you add the run date to the end of your cloned repository
+# eg. $WRKDIR/OceanOmics-draft-genomes$DATE
+
+RUN=NOVA_250606_ADJP
+export RUN
+
+# Dynamically extract date from RUN
+DATE=$(echo "$RUN" | cut -d'_' -f2)
+export DATE
+
+# Dynamically extract Pawsey account from current working directory
+export PAWSEY_ACCOUNT=$(pwd | grep -o '/scratch/pawsey[0-9]\+' | cut -d/ -f3)
+
+export WRKDIR=/scratch/pawsey0964/tpeirce/_NFCORE/_OUT_DIR
+
+# Update the location of where you would like your output, or leave as is.
+export rundir=$WRKDIR/draftgenomes
+
+# Update to the location of your Git clone, or make sure it is in your WRKDIR
+export scripts=$WRKDIR/OceanOmics-draft-genomes$DATE
+
+
+# Leave these variables as is as the scripts use these locations based on the above variables.
+
+export results=./
+export AWS=$WRKDIR/AWS_backup
+export download=$WRKDIR/download/$RUN
+export pooled=$WRKDIR/pooled/$RUN

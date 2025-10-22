@@ -183,7 +183,7 @@ workflow GENOME_QC {
 
 
     emit:
-    busco_short_summary = BUSCO_BUSCO.out.short_summaries_txt // channel: tuple val(meta), path('*.busco.short_summary.txt')
+    busco_short_summary = BUSCO_BUSCO.out.short_summaries_json // channel: tuple val(meta), path('*.busco.short_summary.txt')
     merqury_results = ch_merqury_results // channel: tuple val(meta), path("*.completeness.stats"), path("${prefix}.qv")
     gfastats_results = GFASTATS.out.assembly_summary // channel: tuple val(meta), path("*.assembly_summary")
     multiqc_files = ch_multiqc_files             // channel: [ path(multiqc_files) ]

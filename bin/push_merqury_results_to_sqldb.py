@@ -98,45 +98,125 @@ ON CONFLICT (og_id, seq_date) DO UPDATE SET
 # ----------------------------
 def load_qv(tsv_path: str) -> pd.DataFrame:
     """
-    Expected columns (case/spacing tolerant): sample (or og_id, seq_date), unique_k_mers_assembly, k_mers_total, qv, error
+    Accepts either:
+      1) Headered TSV with columns (case/spacing tolerant):
+         sample (or og_id, seq_date), unique_k_mers_assembly, k_mers_total, qv, error
+      2) Headerless TSV with fixed column order:
+         a) 5 cols: sample, unique_k_mers_assembly, k_mers_total, qv, error
+         b) 6 cols: og_id, seq_date, unique_k_mers_assembly, k_mers_total, qv, error
     """
+    # First try: assume there IS a header (backwards compatible)
     df = pd.read_csv(tsv_path, sep="\t")
     df = normalise_df(df)
     df = ensure_ids(df)
 
     required = {"og_id", "seq_date", "unique_k_mers_assembly", "k_mers_total", "qv", "error"}
     missing = [c for c in required if c not in df.columns]
-    if missing:
-        raise ValueError(f"{tsv_path}: missing required columns {missing}")
 
-    # Coerce
+    if missing:
+        # Fallback: headerless, infer by column count/order
+        df_raw = pd.read_csv(tsv_path, sep="\t", header=None)
+        ncols = df_raw.shape[1]
+        if ncols == 5:
+            # sample + 4 metrics
+            df_raw.columns = [
+                "sample",
+                "unique_k_mers_assembly",
+                "k_mers_total",
+                "qv",
+                "error",
+            ]
+        elif ncols == 6:
+            # og_id, seq_date + 4 metrics
+            df_raw.columns = [
+                "og_id",
+                "seq_date",
+                "unique_k_mers_assembly",
+                "k_mers_total",
+                "qv",
+                "error",
+            ]
+        else:
+            raise ValueError(
+                f"{tsv_path}: expected 5 or 6 columns for headerless QV TSV, got {ncols}"
+            )
+
+        df = normalise_df(df_raw)
+        df = ensure_ids(df)
+
+        # Re-check required columns after assigning names/ensuring IDs
+        missing = [c for c in required if c not in df.columns]
+        if missing:
+            raise ValueError(f"{tsv_path}: missing required columns {missing}")
+
+    # Coerce types
     df["unique_k_mers_assembly"] = df["unique_k_mers_assembly"].apply(to_int_or_none)
     df["k_mers_total"]           = df["k_mers_total"].apply(to_int_or_none)
     df["qv"]                     = df["qv"].apply(to_float_or_none)
     df["error"]                  = df["error"].apply(to_float_or_none)
-
     return df
+
 
 def load_comp(tsv_path: str) -> pd.DataFrame:
     """
-    Expected columns (case/spacing tolerant): sample (or og_id, seq_date), k_mer_set, solid_k_mers, total_k_mers, completeness
+    Accepts either:
+      1) Headered TSV with columns (case/spacing tolerant):
+         sample (or og_id, seq_date), k_mer_set, solid_k_mers, total_k_mers, completeness
+      2) Headerless TSV with fixed column order:
+         a) 5 cols: sample, k_mer_set, solid_k_mers, total_k_mers, completeness
+         b) 6 cols: og_id, seq_date, k_mer_set, solid_k_mers, total_k_mers, completeness
     """
+    # First try: assume there IS a header
     df = pd.read_csv(tsv_path, sep="\t")
     df = normalise_df(df)
     df = ensure_ids(df)
 
     required = {"og_id", "seq_date", "k_mer_set", "solid_k_mers", "total_k_mers", "completeness"}
     missing = [c for c in required if c not in df.columns]
+
     if missing:
-        raise ValueError(f"{tsv_path}: missing required columns {missing}")
+        # Fallback: headerless
+        df_raw = pd.read_csv(tsv_path, sep="\t", header=None)
+        ncols = df_raw.shape[1]
+        if ncols == 5:
+            # sample + 4 cols
+            df_raw.columns = [
+                "sample",
+                "k_mer_set",
+                "solid_k_mers",
+                "total_k_mers",
+                "completeness",
+            ]
+        elif ncols == 6:
+            # og_id, seq_date + 4 cols
+            df_raw.columns = [
+                "og_id",
+                "seq_date",
+                "k_mer_set",
+                "solid_k_mers",
+                "total_k_mers",
+                "completeness",
+            ]
+        else:
+            raise ValueError(
+                f"{tsv_path}: expected 5 or 6 columns for headerless completeness TSV, got {ncols}"
+            )
 
-    # Coerce
-    df["k_mer_set"]     = df["k_mer_set"].apply(to_text_or_none)
-    df["solid_k_mers"]  = df["solid_k_mers"].apply(to_int_or_none)
-    df["total_k_mers"]  = df["total_k_mers"].apply(to_int_or_none)
-    df["completeness"]  = df["completeness"].apply(to_float_or_none)
+        df = normalise_df(df_raw)
+        df = ensure_ids(df)
 
+        # Re-check required columns after assigning names/ensuring IDs
+        missing = [c for c in required if c not in df.columns]
+        if missing:
+            raise ValueError(f"{tsv_path}: missing required columns {missing}")
+
+    # Coerce types
+    df["k_mer_set"]    = df["k_mer_set"].apply(to_text_or_none)
+    df["solid_k_mers"] = df["solid_k_mers"].apply(to_int_or_none)
+    df["total_k_mers"] = df["total_k_mers"].apply(to_int_or_none)
+    df["completeness"] = df["completeness"].apply(to_float_or_none)
     return df
+
 
 # ----------------------------
 # Upserters
@@ -191,11 +271,11 @@ def main():
 
     cfg = load_kv_config(args.config)
     db_params = {
-        "dbname":   cfg.get("DB_NAME"),
-        "user":     cfg.get("DB_USER"),
-        "password": cfg.get("DB_PASSWORD"),
-        "host":     cfg.get("DB_HOST"),
-        "port":     int(cfg.get("DB_PORT", "5432")),
+        "dbname":   cfg.get('dbname'),
+        "user":     cfg.get('user'),
+        "password": cfg.get('password'),
+        "host":     cfg.get('host'),
+        "port":     int(cfg.get('port')),
     }
 
     # Connect once

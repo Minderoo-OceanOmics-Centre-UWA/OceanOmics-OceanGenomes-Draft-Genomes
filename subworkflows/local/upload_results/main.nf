@@ -36,7 +36,7 @@ workflow UPLOAD_RESULTS {
     filter_report // from BBMAP_FILTERBYNAME.out.filter_report - decontamination workflow
     contigs_under_500bp // from BBMAP_FILTERBYNAME.out.contigs_under_500bp - decontamination workflow
     tiara_filter_summary // from TIARA_TIARA.out.summary - decontamination workflow
-    busco_short_summary // from BUSCO_BUSCO.out.short_summary - genome qc workflow
+    busco_short_summary // from BUSCO_BUSCO.out.short_summaries_json - genome qc workflow
     merqury_results // from MERQURY_MERQURY.out.stats and MERQURY_MERQURY.out.assembly_qv - genome qc workflow
     gfastats_results // from GFASTATS.out.assembly_summary - genome qc workflow
     sql_config // params.sql_config
@@ -82,7 +82,7 @@ workflow UPLOAD_RESULTS {
     //
 
     PUSH_BUSCO_RESULTS (
-        busco_short_summary, // tuple val(meta), path('*.busco.short_summary.txt')
+        busco_short_summary, // tuple val(meta), path('*.busco.short_summary.json')
         sql_config // params.sql_config
     )
 

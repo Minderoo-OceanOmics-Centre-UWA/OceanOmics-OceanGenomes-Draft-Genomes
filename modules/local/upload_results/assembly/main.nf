@@ -10,16 +10,15 @@ process PUSH_ASSEMBLY_RESULTS {
     path config
 
     output:
-    path "${meta.id}.lca_blast.upload.txt", emit: upload
+    path "${meta.id}.assembly.upload.txt", emit: upload
     path "versions.yml"                   , emit: versions
 
     script:
     """
     # Push the results to SQL database
-    push_assembly_results_to_sqldb.py \
-        -c $config \
+    push_assembly_results_to_sqldb.py \\
+        -c $config \\
         -f ${genomescope_summary} \\
-        ${meta.id}.assembly_results.txt \\
         > ${meta.id}.assembly.upload.txt 
 
     cat <<-END_VERSIONS > versions.yml

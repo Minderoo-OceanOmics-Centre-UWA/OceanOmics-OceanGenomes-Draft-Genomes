@@ -10,7 +10,7 @@ process PUSH_GFA_RESULTS {
     path config
 
     output:
-    path "${meta.id}.gfastats_report.txt", emit: upload
+    path "${meta.id}.gfastats.upload.txt", emit: upload
     path "versions.yml"                   , emit: versions
 
     script:
@@ -19,7 +19,6 @@ process PUSH_GFA_RESULTS {
     push_gfa_results_to_sqldb.py \\
         -c $config \\
         -f ${gfastats_results} \\
-        ${meta.id}.gfastats_results.txt \\
         > ${meta.id}.gfastats.upload.txt
 
     cat <<-END_VERSIONS > versions.yml

@@ -10,23 +10,15 @@ process PUSH_MERQURY_RESULTS {
     path config
 
     output:
-    path "${meta.id}.lca_blast.upload.txt", emit: upload
+    path "${meta.id}.merqury.upload.txt", emit: upload
     path "versions.yml"                   , emit: versions
 
     script:
     """
-    # Push the results to SQL database
-    # QV-only
-    push_merqury_results_to_sqldb.py -c $config --qv ${qv_tsv}
 
-    # Completeness-only
-    push_merqury_results_to_sqldb.py -c $config --comp ${completeness_stats}
-
-    # Both
     push_merqury_results_to_sqldb.py -c $config \\
         --qv ${qv_tsv} \\
-        --comp ${completeness_stats}
-        ${meta.id}.merqury_results.txt \\
+        --comp ${completeness_stats} \\
         > ${meta.id}.merqury.upload.txt
 
     cat <<-END_VERSIONS > versions.yml

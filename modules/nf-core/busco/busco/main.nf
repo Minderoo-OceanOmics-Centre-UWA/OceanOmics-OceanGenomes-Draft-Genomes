@@ -17,7 +17,6 @@ process BUSCO_BUSCO {
     tuple val(meta), path("*.short_summary.txt")                                              , emit: short_summaries_txt , optional: true
     tuple val(meta), path("*.short_summary.json")                                             , emit: short_summaries_json, optional: true
     tuple val(meta), path("*busco*.logs")                                                      , emit: log                 , optional: true
-    tuple val(meta), path("*/*/logs")                                                      , emit: log2                 , optional: true
     tuple val(meta), path("*busco*.full_table.tsv")                                   , emit: full_table          , optional: true
     tuple val(meta), path("*busco*.missing_busco_list.tsv")                           , emit: missing_busco_list  , optional: true
     // tuple val(meta), path("*busco*/*/run_*/single_copy_proteins.faa")                         , emit: single_copy_proteins, optional: true
@@ -96,6 +95,7 @@ process BUSCO_BUSCO {
     mv ${prefix}/*/*/busco_sequences ${prefix}.busco_sequences
     mv ${prefix}/*/*/missing_busco_list.tsv ${prefix}.missing_busco_list.tsv
     mv ${prefix}/logs ${prefix}.logs
+    mv ${prefix}/*/logs/* ${prefix}.logs
 
     tar -czvf ${prefix}.busco_sequences.tar.gz ${prefix}.busco_sequences
     md5sum ${prefix}.busco_sequences.tar.gz > ${prefix}.busco_sequences.tar.gz.md5 &&  rm -rf ${prefix}.busco_sequences

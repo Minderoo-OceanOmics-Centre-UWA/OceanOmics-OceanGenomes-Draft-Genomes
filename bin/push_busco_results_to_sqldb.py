@@ -1,185 +1,165 @@
 #!/usr/bin/env python3
-import sys
-import os
-import re
-import argparse
+import argparse, json, os, re, sys
 import psycopg2
-import pandas as pd
-import numpy as np
 
 # ----------------------------
-# Helpers
+# Config & helpers
 # ----------------------------
-def load_kv_config(path: str) -> dict:
+def load_kv_config(path):
     cfg = {}
-    with open(path, "r") as f:
-        for raw in f:
-            line = raw.strip()
-            if not line or line.startswith("#"):
-                continue
-            if "=" not in line:
-                continue
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line: continue
             k, v = line.split("=", 1)
-            cfg[k.strip()] = v.strip()
+            cfg[k.strip().lower()] = v.strip()
     return cfg
 
-def norm_name(col: str) -> str:
-    return re.sub(r"[^a-z0-9_]", "_", col.strip().lower())
+PH = {"ne","n/e","na","n/a","none","null","-",""}  # placeholders → None
 
-def normalise_df(df: pd.DataFrame) -> pd.DataFrame:
-    out = df.copy()
-    out.columns = [norm_name(c) for c in out.columns]
-    return out
+def norm_key(s): return re.sub(r"[^a-z0-9_]", "_", s.lower().strip())
 
-def to_int_or_none(x):
-    if pd.isna(x) or x == "":
-        return None
-    try:
-        return int(str(x).replace(",", ""))
-    except Exception:
-        return None
+def to_int(x):
+    if x is None: return None
+    s = str(x).strip().replace(",", "")
+    if s.lower() in PH: return None
+    return int(s) if re.fullmatch(r"[-+]?\d+", s) else None
 
-def to_float_or_none(x):
-    if pd.isna(x) or x == "":
-        return None
-    try:
-        v = float(str(x).replace("%", "").replace(",", ""))
-        return float(v) if np.isfinite(v) else None
-    except Exception:
-        return None
+def to_float(x):
+    if x is None: return None
+    s = str(x).strip().replace(",", "").replace("%", "")
+    if s.lower() in PH: return None
+    return float(s) if re.fullmatch(r"[-+]?\d+(\.\d+)?", s) else None
 
-def to_text_or_none(x):
-    return str(x) if (x is not None and not (isinstance(x, float) and np.isnan(x))) else None
+def infer_ids_from_input(inp):
+    parts = os.path.basename(inp).split(".")
+    og = parts[0] if len(parts) >= 1 else None
+    sd = parts[2] if len(parts) >= 3 else None
+    return og, sd
 
-def ensure_ids(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Ensure og_id and seq_date exist.
-    If a 'sample' column like OGID.TECH.SEQDATE exists, split to fill them.
-    """
-    df = df.copy()
-    if "og_id" not in df.columns and "sample" in df.columns:
-        split = df["sample"].astype(str).str.split(".", expand=True)
-        if split.shape[1] >= 1:
-            df["og_id"] = split[0]
-        if split.shape[1] >= 3 and "seq_date" not in df.columns:
-            df["seq_date"] = split[2]
-    return df
+def infer_ids_from_path(path):
+    base = re.sub(r"\.json$", "", os.path.basename(path), flags=re.I)
+    parts = base.split(".")
+    og = parts[0] if len(parts) >= 1 else None
+    sd = parts[2] if len(parts) >= 3 else None
+    return og, sd
 
 # ----------------------------
-# SQL
+# Key mapping
+# ----------------------------
+KEYMAP = {
+    "complete":            ["complete_percentage","complete","c"],
+    "single_copy":         ["single_copy_percentage","single_percentage","single_copy","single"],
+    "multi_copy":          ["multi_copy_percentage","duplicated_percentage","multi_copy","duplicated"],
+    "fragmented":          ["fragmented_percentage","fragmented","f"],
+    "missing":             ["missing_percentage","missing","m"],
+    "n_markers":           ["n_markers","number_of_buscos","total_buscos","lineage_dataset_size"],
+    "domain":              ["domain","lineage","lineage_dataset","lineage_name"],
+    "number_of_scaffolds": ["number_of_scaffolds","scaffolds"],
+    "number_of_contigs":   ["number_of_contigs","contigs"],
+    "total_length":        ["total_length","assembly_size","genome_size_bp"],
+    "percent_gaps":        ["percent_gaps","gap_percent","n_percent"],
+    "scaffold_n50":        ["scaffold_n50","n50_scaffold","scaffold_n50_bp"],
+    "contigs_n50":         ["contigs_n50","n50_contig","contig_n50","contig_n50_bp"],
+    "internal_stop_codon_count":   ["internal_stop_codon_count"],
+    "internal_stop_codon_percent": ["internal_stop_codon_percent"],
+}
+
+def pick(norm, keys):
+    for k in keys:
+        if k in norm and norm[k] is not None:
+            return norm[k]
+    return None
+
+# ----------------------------
+# Parse JSON → row dict
+# ----------------------------
+def parse_busco_json(path):
+    with open(path) as f: data = json.load(f)
+    merged = {}
+    if isinstance(data.get("metrics"), dict): merged.update(data["metrics"])
+    if isinstance(data.get("results"), dict): merged.update(data["results"])
+    norm = {norm_key(k): v for k, v in merged.items()}
+
+    row = {}
+    for col, keys in KEYMAP.items():
+        val = pick(norm, keys)
+        if col.endswith("_percent") or col in ("complete","single_copy","multi_copy","fragmented","missing","percent_gaps","scaffold_n50"):
+            row[col] = to_float(val)
+        elif col.endswith("_count") or col.startswith("n_") or col in ("number_of_scaffolds","number_of_contigs","total_length","contigs_n50"):
+            row[col] = to_int(val)
+        else:
+            row[col] = (val.strip() if isinstance(val,str) and val.strip() else None)
+
+    # infer IDs
+    og = sd = None
+    inp = (data.get("parameters") or {}).get("in") or (data.get("parameters") or {}).get("out")
+    if inp: og, sd = infer_ids_from_input(inp); row["input_file"] = inp
+    if not og or not sd:
+        og2, sd2 = infer_ids_from_path(path)
+        og = og or og2; sd = sd or sd2
+    row["og_id"], row["seq_date"] = og, sd
+    return row
+
+# ----------------------------
+# SQL with new columns
 # ----------------------------
 UPSERT_SQL = """
 INSERT INTO draft_genomes (
     og_id, seq_date, complete, single_copy, multi_copy, fragmented,
-    missing, n_markers, domain, number_of_scaffolds, number_of_contigs, total_length, percent_gaps, 
-    scaffold_n50, contigs_n50
+    missing, n_markers, domain, number_of_scaffolds, number_of_contigs,
+    total_length, percent_gaps, scaffold_n50, contigs_n50,
+    internal_stop_codon_count, internal_stop_codon_percent
 )
 VALUES (
-    %(og_id)s, %(seq_date)s, %(complete)s, %(single_copy)s, %(multi_copy)s, %(fragmented)s,
-    %(missing)s, %(n_markers)s, %(domain)s, %(number_of_scaffolds)s, %(number_of_contigs)s, %(total_length)s,  
-    %(percent_gaps)s, %(scaffold_n50)s, %(contigs_n50)s
+    %(og_id)s, %(seq_date)s, %(complete)s, %(single_copy)s, %(multi_copy)s,
+    %(fragmented)s, %(missing)s, %(n_markers)s, %(domain)s,
+    %(number_of_scaffolds)s, %(number_of_contigs)s, %(total_length)s,
+    %(percent_gaps)s, %(scaffold_n50)s, %(contigs_n50)s,
+    %(internal_stop_codon_count)s, %(internal_stop_codon_percent)s
 )
 ON CONFLICT (og_id, seq_date) DO UPDATE SET
-    complete          = EXCLUDED.complete,
-    single_copy       = EXCLUDED.single_copy,
-    multi_copy        = EXCLUDED.multi_copy,
-    fragmented        = EXCLUDED.fragmented,
-    missing           = EXCLUDED.missing,
-    n_markers         = EXCLUDED.n_markers,
-    domain            = EXCLUDED.domain,
-    number_of_scaffolds = EXCLUDED.number_of_scaffolds,
-    number_of_contigs = EXCLUDED.number_of_contigs,
-    total_length      = EXCLUDED.total_length,
-    percent_gaps      = EXCLUDED.percent_gaps,
-    scaffold_n50      = EXCLUDED.scaffold_n50,
-    contigs_n50       = EXCLUDED.contigs_n50;
+    complete=EXCLUDED.complete, single_copy=EXCLUDED.single_copy,
+    multi_copy=EXCLUDED.multi_copy, fragmented=EXCLUDED.fragmented,
+    missing=EXCLUDED.missing, n_markers=EXCLUDED.n_markers,
+    domain=EXCLUDED.domain, number_of_scaffolds=EXCLUDED.number_of_scaffolds,
+    number_of_contigs=EXCLUDED.number_of_contigs, total_length=EXCLUDED.total_length,
+    percent_gaps=EXCLUDED.percent_gaps, scaffold_n50=EXCLUDED.scaffold_n50,
+    contigs_n50=EXCLUDED.contigs_n50,
+    internal_stop_codon_count=EXCLUDED.internal_stop_codon_count,
+    internal_stop_codon_percent=EXCLUDED.internal_stop_codon_percent;
 """
 
 # ----------------------------
 # Main
 # ----------------------------
 def main():
-    ap = argparse.ArgumentParser(
-        description="Upsert BUSCO per-sample TSV into PostgreSQL (DB creds from key=value config)."
-    )
-    ap.add_argument("-c", "--config", required=True,
-                    help="Path to config with DB_NAME, DB_USER, DB_PASSWORD, DB_HOST, DB_PORT")
-    ap.add_argument("-f", "--file", required=True,
-                    help="BUSCO compiled TSV for a single sample")
+    ap = argparse.ArgumentParser(description="Upsert BUSCO JSON into PostgreSQL.")
+    ap.add_argument("-c","--config", required=True)
+    ap.add_argument("-f","--file", required=True)
     args = ap.parse_args()
+    if not os.path.isfile(args.file): sys.exit(f"❌ No such file: {args.file}")
 
-    # Load DB config
+    row = parse_busco_json(args.file)
+    if not row.get("og_id") or not row.get("seq_date"):
+        sys.exit("❌ Missing og_id or seq_date")
+
+    print("▶ Upserting:", {k: row.get(k) for k in KEYMAP.keys() if k in row})
+
     cfg = load_kv_config(args.config)
-    db_params = {
-        "dbname":   cfg.get("DB_NAME"),
-        "user":     cfg.get("DB_USER"),
-        "password": cfg.get("DB_PASSWORD"),
-        "host":     cfg.get("DB_HOST"),
-        "port":     int(cfg.get("DB_PORT", "5432")),
-    }
-
-    # Load TSV
-    if not os.path.isfile(args.file):
-        sys.exit(f"❌ Input file not found: {args.file}")
-
-    df = pd.read_csv(args.file, sep="\t")
-    df = normalise_df(df)
-    df = ensure_ids(df)
-
-    # Minimal required fields
-    required = {"og_id", "seq_date"}
-    missing = [c for c in required if c not in df.columns]
-    if missing:
-        sys.exit(f"❌ Missing required columns in TSV: {missing}. "
-                 f"Provide og_id (or sample) and seq_date.")
-
-    # Coerce numeric/text fields safely
-    df["complete"]            = df.get("complete").apply(to_float_or_none) if "complete" in df else None
-    df["single_copy"]         = df.get("single_copy").apply(to_float_or_none) if "single_copy" in df else None
-    df["multi_copy"]          = df.get("multi_copy").apply(to_float_or_none) if "multi_copy" in df else None
-    df["fragmented"]          = df.get("fragmented").apply(to_float_or_none) if "fragmented" in df else None
-    df["missing"]             = df.get("missing").apply(to_float_or_none) if "missing" in df else None
-    df["n_markers"]           = df.get("n_markers").apply(to_int_or_none)   if "n_markers" in df else None
-    df["domain"]              = df.get("domain")                             if "domain" in df else None
-    df["number_of_scaffolds"] = df.get("number_of_scaffolds").apply(to_int_or_none) if "number_of_scaffolds" in df else None
-    df["number_of_contigs"]   = df.get("number_of_contigs").apply(to_int_or_none)   if "number_of_contigs" in df else None
-    df["total_length"]        = df.get("total_length").apply(to_int_or_none)        if "total_length" in df else None
-    df["percent_gaps"]        = df.get("percent_gaps").apply(to_float_or_none)      if "percent_gaps" in df else None
-    df["scaffold_n50"]        = df.get("scaffold_n50").apply(to_float_or_none)      if "scaffold_n50" in df else None
-    df["contigs_n50"]         = df.get("contigs_n50").apply(to_int_or_none)         if "contigs_n50" in df else None
-
-    # Connect & upsert
     try:
-        conn = psycopg2.connect(**db_params)
+        conn = psycopg2.connect(
+            dbname=cfg.get("dbname"), user=cfg.get("user"),
+            password=cfg.get("password"), host=cfg.get("host"),
+            port=int(cfg.get("port", "5432"))
+        )
     except Exception as e:
-        sys.exit(f"❌ Failed to connect to DB: {e}")
+        sys.exit(f"❌ DB connection failed: {e}")
 
     try:
         with conn, conn.cursor() as cur:
-            upserted = 0
-            for _, row in df.iterrows():
-                params = {
-                    "og_id":              to_text_or_none(row.get("og_id")),
-                    "seq_date":           to_text_or_none(row.get("seq_date")),
-                    "complete":           row.get("complete"),
-                    "single_copy":        row.get("single_copy"),
-                    "multi_copy":         row.get("multi_copy"),
-                    "fragmented":         row.get("fragmented"),
-                    "missing":            row.get("missing"),
-                    "n_markers":          row.get("n_markers"),
-                    "domain":             to_text_or_none(row.get("domain")),
-                    "number_of_scaffolds":row.get("number_of_scaffolds"),
-                    "number_of_contigs":  row.get("number_of_contigs"),
-                    "total_length":       row.get("total_length"),
-                    "percent_gaps":       row.get("percent_gaps"),
-                    "scaffold_n50":       row.get("scaffold_n50"),
-                    "contigs_n50":        row.get("contigs_n50"),
-                }
-                cur.execute(UPSERT_SQL, params)
-                upserted += 1
-
-            print(f"✅ Successfully upserted {upserted} row(s) from {args.file}")
-
+            cur.execute(UPSERT_SQL, row)
+            print(f"✅ Upserted ({row['og_id']}, {row['seq_date']}) from {args.file}")
     except Exception as e:
         conn.rollback()
         sys.exit(f"❌ Database error: {e}")

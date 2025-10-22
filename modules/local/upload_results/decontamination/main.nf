@@ -10,24 +10,16 @@ process PUSH_DECONTAMINATION_RESULTS {
     path config
 
     output:
-    path "${meta.id}.lca_blast.upload.txt", emit: upload
+    path "${meta.id}.decontamination.upload.txt", emit: upload
     path "versions.yml"                   , emit: versions
 
     script:
     """
-    # Push the results to SQL database
-    # Tiara-only upsert for one sample
-    # python push_decontamination_results_to_sqldb.py -c ../configfile.txt --tiara ${tiara_sample_tsv}
 
-    # NCBI-only upsert for one sample
-    # python push_decontamination_results_to_sqldb.py -c ../configfile.txt --ncbi ${ncbi_sample_tsv}
-
-    # Do both in one call
-    python push_decontamination_results_to_sqldb.py -c $config \\
+    push_decontamination_results_to_sqldb.py -c $config \\
         --tiara ${tiara_filter_summary} \\
         --filter ${filter_report} \\
         --contigs ${contigs_under_500bp} \\
-        ${meta.id}.decontamination_results.txt \
         > ${meta.id}.decontamination.upload.txt
 
 

@@ -74,8 +74,9 @@ workflow OCEANGENOMES_DRAFTGENOMES {
                 return tuple(meta, reads)
             }
 
-        ch_fastp_json = Channel.fromFilePairs(params.precomputed_fastp_json, checkIfExists: true)
-            .map { json_id, json ->
+        ch_fastp_json = Channel.fromPath(params.precomputed_fastp_json, checkIfExists: true)
+            .map { json ->
+                def json_id = json.baseName
                 def parts = json_id.split('\\.')
                 def meta_id = parts[0]
                 def date = parts[2]
@@ -250,8 +251,50 @@ workflow OCEANGENOMES_DRAFTGENOMES {
         // that was already processed in the TAXON section above
         ch_genome_decontamination_assembly = ch_assembly_with_taxon
         ch_filter_report = Channel.fromPath(params.precomputed_filter_report, checkIfExists: true)
+            .map { file ->
+                def file_name = file.baseName
+                def parts = file_name.split('\\.')
+                def meta_id = parts[0]
+                def date = parts[2]
+                def sample_id = parts[0..2].join('.')  // Parts 0, 1, and 2 joined with dots
+                def meta = [
+                    id: meta_id,
+                    run: params.run,
+                    date: date,
+                    prefix: sample_id
+                ]
+                return tuple(meta, file)
+            }
         ch_contigs_under_500bp = Channel.fromPath(params.precomputed_contigs_under_500bp, checkIfExists: true)
+            .map { file ->
+                def file_name = file.baseName
+                def parts = file_name.split('\\.')
+                def meta_id = parts[0]
+                def date = parts[2]
+                def sample_id = parts[0..2].join('.')  // Parts 0, 1, and 2 joined with dots
+                def meta = [
+                    id: meta_id,
+                    run: params.run,
+                    date: date,
+                    prefix: sample_id
+                ]
+                return tuple(meta, file)
+            }
         ch_tiara_filter_summary = Channel.fromPath(params.precomputed_tiara_filter_summary, checkIfExists: true)
+            .map { file ->
+                def file_name = file.baseName
+                def parts = file_name.split('\\.')
+                def meta_id = parts[0]
+                def date = parts[2]
+                def sample_id = parts[0..2].join('.')  // Parts 0, 1, and 2 joined with dots
+                def meta = [
+                    id: meta_id,
+                    run: params.run,
+                    date: date,
+                    prefix: sample_id
+                ]
+                return tuple(meta, file)
+            }
     } else {
         ch_genome_decontamination_assembly = Channel.empty()
         ch_filter_report = Channel.empty()
@@ -296,17 +339,19 @@ workflow OCEANGENOMES_DRAFTGENOMES {
     // SUBWORKFLOW: Upload results to SQL database
     //
 
-    // UPLOAD_RESULTS (
-    //     ch_fastp_json,
-    //     ch_genomescope_summary,
-    //     ch_filter_report,
-    //     ch_contigs_under_500bp,
-    //     ch_tiara_filter_summary,
-    //     ch_busoco_short_summary,
-    //     ch_merqury_results,
-    //     ch_gfastats_results,
-    //     sql_config
-    // )
+    if (!params.skip_upload_results) {
+        UPLOAD_RESULTS (
+            ch_fastp_json,
+            ch_genomescope_summary,
+            ch_filter_report,
+            ch_contigs_under_500bp,
+            ch_tiara_filter_summary,
+            ch_busoco_short_summary,
+            ch_merqury_results,
+            ch_gfastats_results,
+            sql_config
+        )
+    }
 
     //
     // Collect all MultiQC files from all subworkflows

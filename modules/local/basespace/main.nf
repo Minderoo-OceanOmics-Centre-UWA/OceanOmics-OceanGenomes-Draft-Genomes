@@ -20,7 +20,6 @@ process BASESPACE {
 
     #this creates the list of all the lanes for downloading
     ./bs list dataset --input-run \$RUNID | awk '{print \$2;}' | grep 'OG' > ${run_id}.prefix.txt
-    sed -i '1,3d' ${run_id}.prefix.txt
 
 
     for PREFIX in \$(cat ${run_id}.prefix.txt); do

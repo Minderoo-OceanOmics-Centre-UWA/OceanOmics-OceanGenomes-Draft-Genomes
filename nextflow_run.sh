@@ -9,7 +9,7 @@ nextflow run main.nf \
     -resume \
     -profile singularity \
     -with-report \
-    --run $RUN \
+    --run "$RUN" \
     --outdir /scratch/pawsey0964/$USER/_NFCORE/_OUT_DIR \
     --mitogenome_nfcore_dir /scratch/pawsey0964/$USER/_NFCORE/Oceanomics-OceanGenomes-Mitogenomes \
     --kvalue "21" \
@@ -27,6 +27,7 @@ nextflow run main.nf \
     --skip_genome_assembly true \
     --skip_genome_decontamination true \
     --skip_genome_qc false \
+    --skip_upload_results false \
 
 
     # --input assets/samplesheet.csv \  # include a samplesheet if you are not downloading sample.
