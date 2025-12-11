@@ -2,7 +2,7 @@
 # Load in the configfile
 . ../configfile.txt
 mkdir -p FileCheck
-rundir=/scratch/pawsey0964/tpeirce/NEXT_250724_ET/draftgenomes
+
 for OGdir in $rundir/*; do
 # Set OG and DATE variables (replace with actual values)
     OG=$(basename $OGdir)

@@ -100,8 +100,8 @@ process BUSCO_BUSCO {
     cp ${output_dir}/*/*/*/full_table.tsv ${prefix}.full_table.tsv
     cp -r ${output_dir}/*/*/*/busco_sequences ${prefix}.busco_sequences
     cp ${output_dir}/*/*/*/missing_busco_list.tsv ${prefix}.missing_busco_list.tsv
-    cp -r ${output_dir}/*/*/logs ${prefix}.logs
-    cp ${output_dir}/*/*/*/logs/* ${prefix}.logs
+    cp -r ${output_dir}/*/logs ${prefix}.logs
+    cp ${output_dir}/*/*/logs/* ${prefix}.logs
 
     tar -czvf ${prefix}.busco_sequences.tar.gz ${prefix}.busco_sequences
     md5sum ${prefix}.busco_sequences.tar.gz > ${prefix}.busco_sequences.tar.gz.md5 &&  rm -rf ${prefix}.busco_sequences

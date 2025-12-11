@@ -129,70 +129,69 @@ workflow GENOME_QC {
     EXTRACT_BUSCO_SEQUENCES(ch_extract_busco_input)
 
 
-    // //
-    // // MODULE: Run BWA index
-    // //
+    //
+    // MODULE: Run BWA index
+    //
 
-    // BWAMEM2_INDEX (
-    //     assembly // tuple val(meta), path(fasta)
-    // )
-    // ch_versions = ch_versions.mix(BWAMEM2_INDEX.out.versions.first())
+    BWAMEM2_INDEX (
+        assembly // tuple val(meta), path(fasta)
+    )
+    ch_versions = ch_versions.mix(BWAMEM2_INDEX.out.versions.first())
 
     
-    // // Channel for BWA mem
-    // ch_bwamem2_mem_input = join_on_keys_and_merge([fastp, BWAMEM2_INDEX.out.index, assembly])
-    // // Returns: [merged_meta, fastp_files, index, assembly]
+    // Channel for BWA mem
+    ch_bwamem2_mem_input = join_on_keys_and_merge([fastp, BWAMEM2_INDEX.out.index, assembly])
+    // Returns: [merged_meta, fastp_files, index, assembly]
 
-    // //
-    // // MODULE: Run BWA align
-    // //
+    //
+    // MODULE: Run BWA align
+    //
 
-    // BWAMEM2_MEM (
-    //     ch_bwamem2_mem_input // tuple val(meta), path(reads), path(index), path(fasta)
-    // )
-    // ch_versions = ch_versions.mix(BWAMEM2_MEM.out.versions.first())
+    BWAMEM2_MEM (
+        ch_bwamem2_mem_input // tuple val(meta), path(reads), path(index), path(fasta)
+    )
+    ch_versions = ch_versions.mix(BWAMEM2_MEM.out.versions.first())
 
 
-    // // Channel for merqury
-    // ch_merqury_input = join_on_keys_and_merge([meryl_db, assembly])
+    // Channel for merqury
+    ch_merqury_input = join_on_keys_and_merge([meryl_db, assembly])
     
-    // //
-    // // MODULE: Run Merqury
-    // //
+    //
+    // MODULE: Run Merqury
+    //
 
-    // MERQURY_MERQURY (
-    //     ch_merqury_input // tuple val(meta), path(meryl_db), path(assembly)
-    // )
-    // ch_versions = ch_versions.mix(MERQURY_MERQURY.out.versions.first())
-    // ch_merqury_results = MERQURY_MERQURY.out.stats.join(MERQURY_MERQURY.out.assembly_qv, by:0) // channel: tuple val(meta), path("*.completeness.stats")
-
-
-    // // Channel for gfa stats
-    // ch_gfastats_input = join_on_keys_and_merge([assembly, genomescope_summary])
+    MERQURY_MERQURY (
+        ch_merqury_input // tuple val(meta), path(meryl_db), path(assembly)
+    )
+    ch_versions = ch_versions.mix(MERQURY_MERQURY.out.versions.first())
+    ch_merqury_results = MERQURY_MERQURY.out.stats.join(MERQURY_MERQURY.out.assembly_qv, by:0) // channel: tuple val(meta), path("*.completeness.stats")
 
 
-    // //
-    // // MODULE: Run gfa stats
-    // //
+    // Channel for gfa stats
+    ch_gfastats_input = join_on_keys_and_merge([assembly, genomescope_summary])
 
-    // GFASTATS (
-    //     ch_gfastats_input, // tuple val(meta), path(assembly), path(genomescope_summary)
-    //     "fa", // val out_fmt
-    // )
-    // ch_versions = ch_versions.mix(GFASTATS.out.versions.first())
-    // ch_gfastats_results = GFASTATS.out.assembly_summary // channel: tuple val(meta), path("*.assembly_summary")
+
+    //
+    // MODULE: Run gfa stats
+    //
+
+    GFASTATS (
+        ch_gfastats_input, // tuple val(meta), path(assembly), path(genomescope_summary)
+        "fa", // val out_fmt
+    )
+    ch_versions = ch_versions.mix(GFASTATS.out.versions.first())
+    ch_gfastats_results = GFASTATS.out.assembly_summary // channel: tuple val(meta), path("*.assembly_summary")
+    
     //
     // Collect files
     //
 
-    // ch_multiqc_files = ch_multiqc_files.mix(BASESPACE.out.json.collect{it[1]})
-    // ch_multiqc_files = ch_multiqc_files.mix(BBMAP_REPAIR.out.log.collect{it})
     ch_versions = ch_versions.mix(BUSCO_BUSCO.out.versions.first())
     ch_versions = ch_versions.mix(EXTRACT_BUSCO_SEQUENCES.out.versions.first())
-    // ch_versions = ch_versions.mix(BWAMEM2_INDEX.out.versions.first())
-    // ch_versions = ch_versions.mix(BWAMEM2_MEM.out.versions.first())
-    // ch_versions = ch_versions.mix(MERQURY_MERQURY.out.versions.first())
-    // ch_versions = ch_versions.mix(GFASTATS.out.versions.first())
+    ch_versions = ch_versions.mix(BWAMEM2_INDEX.out.versions.first())
+    ch_versions = ch_versions.mix(BWAMEM2_MEM.out.versions.first())
+    ch_versions = ch_versions.mix(MERQURY_MERQURY.out.versions.first())
+    ch_versions = ch_versions.mix(GFASTATS.out.versions.first())
 
 
     emit:
