@@ -4,4 +4,5 @@ channels:
   - conda-forge
   - bioconda
 dependencies:
-  - bioconda::bedtools=2.31.1
+  - python=3.9
+  - psycopg2=2.9

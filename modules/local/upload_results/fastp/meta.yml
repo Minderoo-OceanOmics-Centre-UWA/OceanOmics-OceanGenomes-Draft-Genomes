@@ -1,0 +1,43 @@
+name: push_fastp_results
+description: Upload fastp QC metrics to the SQL database.
+keywords:
+  - fastp
+  - upload
+  - sql
+  - metadata
+tools:
+  - python:
+      description: Python with psycopg2 for database insertion.
+      homepage: https://www.python.org/
+      documentation: https://docs.python.org/3/
+      licence: ["PSF-2.0"]
+
+input:
+  - - meta:
+        type: map
+        description: Groovy Map containing sample metadata (id, prefix, run, date).
+    - fastp_json:
+        type: file
+        description: fastp JSON report to upload.
+        pattern: "*.json"
+    - config:
+        type: file
+        description: PostgreSQL connection config.
+
+output:
+  - upload:
+      - "*.fastp.upload.txt":
+          type: file
+          description: Log of database upload operations for fastp metrics.
+          pattern: "*.fastp.upload.txt"
+  - versions:
+      - versions.yml:
+          type: file
+          description: File containing software versions.
+          pattern: "versions.yml"
+
+authors:
+  - "@tpeirce"
+
+maintainers:
+  - "@tpeirce"

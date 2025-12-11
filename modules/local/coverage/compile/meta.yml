@@ -1,0 +1,37 @@
+name: compile_json_to_csv
+description: Aggregate multiple JSON coverage summaries into a single CSV file.
+keywords:
+  - json
+  - csv
+  - aggregation
+  - coverage
+tools:
+  - python:
+      description: Python for parsing JSON inputs and writing CSV.
+      homepage: https://www.python.org/
+      documentation: https://docs.python.org/3/
+      licence: ["PSF-2.0"]
+
+input:
+  - json_files:
+      type: file
+      description: One or more JSON files to compile.
+      pattern: "*.json"
+
+output:
+  - csv:
+      - "*.csv":
+          type: file
+          description: Combined CSV file generated from all JSON inputs.
+          pattern: "*.csv"
+  - versions:
+      - versions.yml:
+          type: file
+          description: File containing software versions.
+          pattern: "versions.yml"
+
+authors:
+  - "@tpeirce"
+
+maintainers:
+  - "@tpeirce"

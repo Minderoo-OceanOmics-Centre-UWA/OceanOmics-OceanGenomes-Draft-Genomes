@@ -19,49 +19,36 @@
 
 ## Introduction
 
-**nf-core/oceangenomesdraftgenomes** is a bioinformatics pipeline that ...
+**nf-core/oceangenomesdraftgenomes** builds short-read draft assemblies for Ocean Omics / Ocean Genomes samples. It can download Illumina runs directly from BaseSpace or consume existing FASTQs, performs adapter/quality trimming, estimates genome size and coverage, assembles with MEGAHIT, screens contaminants (NCBI FCS-GX, FCS adaptor, Tiara + BBMap), runs genome QC (BUSCO, BWA-MEM2, Merqury, Gfastats), and collates results with MultiQC. Optional steps push QC summaries into the project SQL database.
 
-<!-- TODO nf-core:
-   Complete this sentence with a 2-3 sentence summary of what types of data the pipeline ingests, a brief overview of the
-   major pipeline sections and the types of output it produces. You're giving an overview to someone new
-   to nf-core here, in 15-20 seconds. For an example, see https://github.com/nf-core/rnaseq/blob/master/README.md#introduction
--->
+Key steps:
 
-<!-- TODO nf-core: Include a figure that guides the user through the major workflow steps. Many nf-core
-     workflows use the "tube map" design for that. See https://nf-co.re/docs/contributing/design_guidelines#examples for examples.   -->
-<!-- TODO nf-core: Fill in short bullet-pointed list of the default steps in the pipeline -->1. Read QC ([`FastQC`](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/))2. Present QC for raw reads ([`MultiQC`](http://multiqc.info/))
+- Download and re-pair reads from Illumina BaseSpace (optional if `--skip_download_reads` or `--input` used)
+- Read QC and trimming with FastQC / fastp
+- K-mer profiling (meryl, GenomeScope2) and coverage estimation
+- Assembly with MEGAHIT
+- Contamination filtering with NCBI FCS-GX + adaptor screening, Tiara classification, and BBMap cleanup
+- Genome QC with BUSCO, BWA-MEM2 alignments, Merqury, and Gfastats
+- MultiQC summary and optional SQL upload of QC metrics
 
 ## Usage
 
 > [!NOTE]
 > If you are new to Nextflow and nf-core, please refer to [this page](https://nf-co.re/docs/usage/installation) on how to set-up Nextflow. Make sure to [test your setup](https://nf-co.re/docs/usage/introduction#how-to-run-a-pipeline) with `-profile test` before running the workflow on actual data.
 
-<!-- TODO nf-core: Describe the minimum required steps to execute the pipeline, e.g. how to prepare samplesheets.
-     Explain what rows and columns represent. For instance (please edit as appropriate):
-
-First, prepare a samplesheet with your input data that looks as follows:
-
-`samplesheet.csv`:
-
-```csv
-sample,fastq_1,fastq_2
-CONTROL_REP1,AEG588A1_S1_L002_R1_001.fastq.gz,AEG588A1_S1_L002_R2_001.fastq.gz
-```
-
-Each row represents a fastq file (single-end) or a pair of fastq files (paired end).
-
--->
-
 Now, you can run the pipeline using:
 
-<!-- TODO nf-core: update the following command to include all required parameters for a minimal example -->
-
 ```bash
-nextflow run nf-core/oceangenomesdraftgenomes \
-   -profile <docker/singularity/.../institute> \
-   --input samplesheet.csv \
-   --outdir <OUTDIR>
+nextflow run main.nf \
+  -profile singularity \
+  -c pawsey_profile.config \
+  --run NEXT_250724_ET \
+  --bs_config ~/.basespace/default.cfg \
+  --sql_config ~/postgresql_details/oceanomics.cfg \
+  --outdir /scratch/pawsey0964/$USER/oceangenomesdraftgenomes
 ```
+
+Use `--input <samplesheet.csv> --skip_download_reads true` if you already have FASTQs instead of pulling from BaseSpace. The pipeline needs paths for the contamination DB (`--gxdb`), BUSCO DBs (`--busco_acti_db` / `--busco_vert_db`), and a temp directory suited to your system; see the provided `nextflow_run*.sh` templates for a full set of Pawsey-friendly flags.
 
 > [!WARNING]
 > Please provide pipeline parameters via the CLI or Nextflow `-params-file` option. Custom config files including those provided by the `-c` Nextflow option can be used to provide any configuration _**except for parameters**_; see [docs](https://nf-co.re/docs/usage/getting_started/configuration#custom-configuration-files).
@@ -80,7 +67,7 @@ nf-core/oceangenomesdraftgenomes was originally written by Tyler Peirce.
 
 We thank the following people for their extensive assistance in the development of this pipeline:
 
-<!-- TODO nf-core: If applicable, make list of people who have also contributed -->
+- Ocean Omics / Ocean Genomes project team and Pawsey collaborators
 
 ## Contributions and Support
 
@@ -90,10 +77,7 @@ For further information or help, don't hesitate to get in touch on the [Slack `#
 
 ## Citations
 
-<!-- TODO nf-core: Add citation for pipeline after first release. Uncomment lines below and update Zenodo doi and badge at the top of this file. -->
-<!-- If you use nf-core/oceangenomesdraftgenomes for your analysis, please cite it using the following doi: [10.5281/zenodo.XXXXXX](https://doi.org/10.5281/zenodo.XXXXXX) -->
-
-<!-- TODO nf-core: Add bibliography of tools and data used in your pipeline -->
+The Zenodo DOI will be added at the first tagged release (update the badge above accordingly).
 
 An extensive list of references for the tools used by the pipeline can be found in the [`CITATIONS.md`](CITATIONS.md) file.
 

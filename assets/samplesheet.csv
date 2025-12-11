@@ -1,11 +1,12 @@
-sample,run,buscodb,species,taxonid
-OG747,NOVA_250131_AD,actinopterygii,Sphyraena barracuda,70868
-OG846,NOVA_250131_AD,vertebrate,Carcharodon carcharias,13397
-OG893,NOVA_250131_AD,actinopterygii,Leucicorus sp,7898
-OG894,NOVA_250131_AD,actinopterygii,Pachycara sp,7898
-OG895,NOVA_250131_AD,actinopterygii,Barathrites iris,7898
-OG897,NOVA_250131_AD,actinopterygii,Barathrites iris,7898
-OG898,NOVA_250131_AD,actinopterygii,Barathrites iris,7898
-OG899,NOVA_250131_AD,actinopterygii,Pachycara sp,7898
-OG900,NOVA_250131_AD,actinopterygii,Seleniolycus sp,7898
-OG904,NOVA_250131_AD,actinopterygii,Acanthonus armatus,1843782
+sample,run,date,prefix,nom_species_id,taxon_id,class,fastq_1,fastq_2
+OG1408,NOVA_251031_LMAD,251031,OG1408.ilmn.251031,Balaenoptera acutorostrata,9767,Mammalia,/scratch/pawsey0964/tpeirce/NOVA_251031_LMAD/pooled/NOVA_251031_LMAD/OG1408.ilmn.NOVA_251031_LMAD.R1.fq.gz,/scratch/pawsey0964/tpeirce/NOVA_251031_LMAD/pooled/NOVA_251031_LMAD/OG1408.ilmn.NOVA_251031_LMAD.R2.fq.gz
+OG1410,NOVA_251031_LMAD,251031,OG1410.ilmn.251031,Balaenoptera acutorostrata,9767,Mammalia,/scratch/pawsey0964/tpeirce/NOVA_251031_LMAD/pooled/NOVA_251031_LMAD/OG1410.ilmn.NOVA_251031_LMAD.R1.fq.gz,/scratch/pawsey0964/tpeirce/NOVA_251031_LMAD/pooled/NOVA_251031_LMAD/OG1410.ilmn.NOVA_251031_LMAD.R2.fq.gz
+OG1411,NOVA_251031_LMAD,251031,OG1411.ilmn.251031,Balaenoptera acutorostrata,9767,Mammalia,/scratch/pawsey0964/tpeirce/NOVA_251031_LMAD/pooled/NOVA_251031_LMAD/OG1411.ilmn.NOVA_251031_LMAD.R1.fq.gz,/scratch/pawsey0964/tpeirce/NOVA_251031_LMAD/pooled/NOVA_251031_LMAD/OG1411.ilmn.NOVA_251031_LMAD.R2.fq.gz
+OG75,NOVA_251031_LMAD,251031,OG75.ilmn.251031,Ophiclinus antarcticus,1385675,Actinopteri,/scratch/pawsey0964/tpeirce/NOVA_251031_LMAD/pooled/NOVA_251031_LMAD/OG75.ilmn.NOVA_251031_LMAD.R1.fq.gz,/scratch/pawsey0964/tpeirce/NOVA_251031_LMAD/pooled/NOVA_251031_LMAD/OG75.ilmn.NOVA_251031_LMAD.R2.fq.gz
+OG848,NOVA_251031_LMAD,251031,OG848.ilmn.251031,Paraliparis selti,948035,Actinopteri,/scratch/pawsey0964/tpeirce/NOVA_251031_LMAD/pooled/NOVA_251031_LMAD/OG848.ilmn.NOVA_251031_LMAD.R1.fq.gz,/scratch/pawsey0964/tpeirce/NOVA_251031_LMAD/pooled/NOVA_251031_LMAD/OG848.ilmn.NOVA_251031_LMAD.R2.fq.gz
+OG853,NOVA_251031_LMAD,251031,OG853.ilmn.251031,Eptatretus sp (Eptatretus cf. goliath),1350222,Myxini,/scratch/pawsey0964/tpeirce/NOVA_251031_LMAD/pooled/NOVA_251031_LMAD/OG853.ilmn.NOVA_251031_LMAD.R1.fq.gz,/scratch/pawsey0964/tpeirce/NOVA_251031_LMAD/pooled/NOVA_251031_LMAD/OG853.ilmn.NOVA_251031_LMAD.R2.fq.gz
+OG867,NOVA_251031_LMAD,251031,OG867.ilmn.251031,Squalogadus cf. modificatus,332423,Actinopteri,/scratch/pawsey0964/tpeirce/NOVA_251031_LMAD/pooled/NOVA_251031_LMAD/OG867.ilmn.NOVA_251031_LMAD.R1.fq.gz,/scratch/pawsey0964/tpeirce/NOVA_251031_LMAD/pooled/NOVA_251031_LMAD/OG867.ilmn.NOVA_251031_LMAD.R2.fq.gz
+OG868,NOVA_251031_LMAD,251031,OG868.ilmn.251031,Careproctus sp.,2162886,Actinopteri,/scratch/pawsey0964/tpeirce/NOVA_251031_LMAD/pooled/NOVA_251031_LMAD/OG868.ilmn.NOVA_251031_LMAD.R1.fq.gz,/scratch/pawsey0964/tpeirce/NOVA_251031_LMAD/pooled/NOVA_251031_LMAD/OG868.ilmn.NOVA_251031_LMAD.R2.fq.gz
+OG891,NOVA_251031_LMAD,251031,OG891.ilmn.251031,Ophidiidae larvae,1843782,Actinopteri,/scratch/pawsey0964/tpeirce/NOVA_251031_LMAD/pooled/NOVA_251031_LMAD/OG891.ilmn.NOVA_251031_LMAD.R1.fq.gz,/scratch/pawsey0964/tpeirce/NOVA_251031_LMAD/pooled/NOVA_251031_LMAD/OG891.ilmn.NOVA_251031_LMAD.R2.fq.gz
+OG909,NOVA_251031_LMAD,251031,OG909.ilmn.251031,Bodianus solatus,1328953,Actinopteri,/scratch/pawsey0964/tpeirce/NOVA_251031_LMAD/pooled/NOVA_251031_LMAD/OG909.ilmn.NOVA_251031_LMAD.R1.fq.gz,/scratch/pawsey0964/tpeirce/NOVA_251031_LMAD/pooled/NOVA_251031_LMAD/OG909.ilmn.NOVA_251031_LMAD.R2.fq.gz
+OG98,NOVA_251031_LMAD,251031,OG98.ilmn.251031,Parvicrepis sp. `typical morph`,1500708,Actinopteri,/scratch/pawsey0964/tpeirce/NOVA_251031_LMAD/pooled/NOVA_251031_LMAD/OG98.ilmn.NOVA_251031_LMAD.R1.fq.gz,/scratch/pawsey0964/tpeirce/NOVA_251031_LMAD/pooled/NOVA_251031_LMAD/OG98.ilmn.NOVA_251031_LMAD.R2.fq.gz

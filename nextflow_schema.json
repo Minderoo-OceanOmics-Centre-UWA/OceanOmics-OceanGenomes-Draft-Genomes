@@ -50,29 +50,64 @@
             "description": "Pipeline specific parameters.",
             "properties": {
                 "run": {
-                    "typer": "string",
+                    "type": "string",
                     "description": "The sequencing run eg. 'NOVA_220101_AA'"
                 },
                 "kvalue": {
                     "type": "integer",
                     "description": "k value to use with Meryl.",
-                    "default": 31
+                    "default": 21
                 },
-                "buscomode": {
-                    "type": "string",
-                    "description": "Busco mode. Can be 'genome', 'ogs', or 'trans'.",
-                    "enum": ["genome", "ogs", "trans"],
-                    "default": "genome"
+                "genomescope2_l": {
+                    "type": ["boolean", "string"],
+                    "description": "Optional GenomeScope2 -l flag value; use false to disable.",
+                    "default": false
                 },
-                "buscodb": {
+                "bs_config": {
                     "type": "string",
                     "format": "file-path",
                     "exists": true,
-                    "description": "Path to Busco lineage database."
+                    "description": "Path to BaseSpace CLI config file for downloads."
+                },
+                "sql_config": {
+                    "type": "string",
+                    "format": "file-path",
+                    "exists": true,
+                    "description": "Path to PostgreSQL connection config for metadata upload/lookup."
                 },
                 "gxdb": {
                     "type": "string",
                     "description": "Path to FCS-GX database."
+                },
+                "ramdisk_path": {
+                    "type": "string",
+                    "description": "Path to RAM disk directory for FCS-GX."
+                },
+                "busco_acti_db": {
+                    "type": "string",
+                    "format": "file-path",
+                    "exists": true,
+                    "description": "Path to BUSCO Actinopterygii database."
+                },
+                "busco_vert_db": {
+                    "type": "string",
+                    "format": "file-path",
+                    "exists": true,
+                    "description": "Path to BUSCO Vertebrata database."
+                },
+                "mitogenome_nfcore_dir": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "description": "Path to nf-core/oceangenomesmitogenomes pipeline for triggered mitogenome runs."
+                },
+                "tempdir": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "description": "Temporary directory for Nextflow tasks."
+                },
+                "pooled": {
+                    "type": "string",
+                    "description": "Path to pooled reads directory (used when skip_download_reads is true)."
                 },
                 "rclonedest": {
                     "type": "string",
@@ -83,48 +118,106 @@
                     "type": "string",
                     "description": "Directory to bind (e.g., '/scratch')."
                 },
-                "tempdir": {
+                "curated_blast_db": {
                     "type": "string",
-                    "description": "Directory to be your temporary directory."
-                }
-            }
-        },
-        "reference_genome_options": {
-            "title": "Reference genome options",
-            "type": "object",
-            "fa_icon": "fas fa-dna",
-            "description": "Reference genome related files and options required for the workflow.",
-            "properties": {
-                "genome": {
-                    "type": "string",
-                    "description": "Name of iGenomes reference.",
-                    "fa_icon": "fas fa-book",
-                    "help_text": "If using a reference genome configured in the pipeline using iGenomes, use this parameter to give the ID for the reference. This is then used to build the full paths for all required reference genome files e.g. `--genome GRCh38`. \n\nSee the [nf-core website docs](https://nf-co.re/usage/reference_genomes) for more details."
+                    "description": "Curated BLAST DB path for downstream mitogenome/LCA workflows.",
+                    "nullable": true
                 },
-                "fasta": {
+                "schema_input": {
                     "type": "string",
-                    "format": "file-path",
-                    "exists": true,
-                    "mimetype": "text/plain",
-                    "pattern": "^\\S+\\.fn?a(sta)?(\\.gz)?$",
-                    "description": "Path to FASTA genome file.",
-                    "help_text": "This parameter is *mandatory* if `--genome` is not specified. If you don't have a BWA index available this will be generated for you automatically. Combine with `--save_reference` to save BWA index for future runs.",
-                    "fa_icon": "far fa-file-code"
+                    "description": "Path to input schema used for samplesheet validation.",
+                    "default": "assets/schema_input.json"
                 },
-                "igenomes_ignore": {
+                "skip_download_reads": {
                     "type": "boolean",
-                    "description": "Do not load the iGenomes reference config.",
-                    "fa_icon": "fas fa-ban",
-                    "hidden": true,
-                    "help_text": "Do not load `igenomes.config` when running the pipeline. You may choose this option if you observe clashes between custom parameters and those supplied in `igenomes.config`."
+                    "description": "Skip BaseSpace download workflow.",
+                    "default": false
                 },
-                "igenomes_base": {
+                "skip_fastp_fastqc": {
+                    "type": "boolean",
+                    "description": "Skip read QC/trimming.",
+                    "default": false
+                },
+                "skip_genome_assembly": {
+                    "type": "boolean",
+                    "description": "Skip genome assembly subworkflow.",
+                    "default": false
+                },
+                "skip_genome_decontamination": {
+                    "type": "boolean",
+                    "description": "Skip genome decontamination subworkflow.",
+                    "default": false
+                },
+                "skip_genome_qc": {
+                    "type": "boolean",
+                    "description": "Skip genome QC subworkflow.",
+                    "default": false
+                },
+                "skip_upload_results": {
+                    "type": "boolean",
+                    "description": "Skip uploading QC metrics to SQL database.",
+                    "default": false
+                },
+                "precomputed_download_reads_results": {
                     "type": "string",
-                    "format": "directory-path",
-                    "description": "The base path to the igenomes reference files",
-                    "fa_icon": "fas fa-ban",
-                    "hidden": true,
-                    "default": "s3://ngi-igenomes/igenomes/"
+                    "description": "Glob for precomputed paired FASTQs if download is skipped."
+                },
+                "precomputed_fastp_fastqc_results": {
+                    "type": "string",
+                    "description": "Glob for precomputed fastp FASTQs when skipping fastp/fastqc."
+                },
+                "precomputed_fastp_json": {
+                    "type": "string",
+                    "description": "Glob for precomputed fastp JSON reports."
+                },
+                "precomputed_genome_assembly_results": {
+                    "type": "string",
+                    "description": "Glob for precomputed genome assemblies when assembly is skipped."
+                },
+                "precomputed_genomescope_summary": {
+                    "type": "string",
+                    "description": "Glob for precomputed GenomeScope summary files."
+                },
+                "precomputed_meryl_results": {
+                    "type": "string",
+                    "description": "Glob for precomputed meryl db directories."
+                },
+                "precomputed_genome_decontamination_results": {
+                    "type": "string",
+                    "description": "Glob for precomputed decontaminated assemblies when decontamination is skipped."
+                },
+                "precomputed_filter_report": {
+                    "type": "string",
+                    "description": "Glob for precomputed filter reports."
+                },
+                "precomputed_contigs_under_500bp": {
+                    "type": "string",
+                    "description": "Glob for precomputed contig-count files."
+                },
+                "precomputed_tiara_filter_summary": {
+                    "type": "string",
+                    "description": "Glob for precomputed Tiara summaries."
+                },
+                "precomputed_genome_qc_results": {
+                    "type": "string",
+                    "description": "Glob for precomputed genome QC outputs."
+                },
+                "precomputed_busoco_short_summary_results": {
+                    "type": "string",
+                    "description": "Glob for precomputed BUSCO short summaries."
+                },
+                "precomputed_merqury_results_results": {
+                    "type": "string",
+                    "description": "Glob for precomputed Merqury outputs."
+                },
+                "precomputed_gfastats_results_results": {
+                    "type": "string",
+                    "description": "Glob for precomputed GFAstats outputs."
+                },
+                "refreshModules": {
+                    "type": "boolean",
+                    "description": "Whether to refresh DSL2 module cache.",
+                    "default": true
                 }
             }
         },
@@ -314,7 +407,7 @@
             "$ref": "#/$defs/input_output_options"
         },
         {
-            "$ref": "#/$defs/reference_genome_options"
+            "$ref": "#/$defs/pipeline_parameters"
         },
         {
             "$ref": "#/$defs/institutional_config_options"

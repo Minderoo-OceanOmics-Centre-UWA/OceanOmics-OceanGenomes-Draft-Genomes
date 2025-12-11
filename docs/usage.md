@@ -6,61 +6,94 @@
 
 ## Introduction
 
-<!-- TODO nf-core: Add documentation about anything specific to running your pipeline. For general topics, please point to (and add to) the main nf-core website. -->
+This pipeline supports two entry points:
+
+- **Download from Illumina BaseSpace**: provide `--run` and a BaseSpace CLI config (`--bs_config`). The workflow pulls datasets for that run ID, re-pairs lanes, and builds a samplesheet automatically using metadata looked up via `--sql_config`.
+- **Use existing FASTQs**: provide `--input` with a validated samplesheet and set `--skip_download_reads true`. This is useful when FASTQs are already staged or come from outside BaseSpace.
+
+A minimal BaseSpace run on Pawsey looks like:
+
+```bash
+nextflow run main.nf \
+  -profile singularity \
+  -c pawsey_profile.config \
+  --run NEXT_250724_ET \
+  --bs_config ~/.basespace/default.cfg \
+  --sql_config ~/postgresql_details/oceanomics.cfg \
+  --outdir /scratch/pawsey0964/$USER/oceangenomesdraftgenomes
+```
+
+When using pre-existing FASTQs:
+
+```bash
+nextflow run main.nf \
+  -profile singularity \
+  -c pawsey_profile.config \
+  --input assets/samplesheet.csv \
+  --skip_download_reads true \
+  --outdir /scratch/pawsey0964/$USER/oceangenomesdraftgenomes
+```
+
+If your environment uses different contamination/BUSCO databases or a different temporary directory, set `--gxdb`, `--busco_acti_db`, `--busco_vert_db`, and `--tempdir` accordingly (see `nextflow_run*.sh` for a full example).
 
 ## Samplesheet input
 
-You will need to create a samplesheet with information about the samples you would like to analyse before running the pipeline. Use this parameter to specify its location. It has to be a comma-separated file with 3 columns, and a header row as shown in the examples below.
+If you supply `--run`, the pipeline will create a samplesheet for you and place it under `samplesheet/<RUN>_samplesheet.csv` in your `--outdir` using metadata from `--sql_config`. To supply your own, point `--input` at a CSV that matches `assets/schema_input.json`.
 
-```bash
---input '[path to samplesheet file]'
+Required header (order fixed):
+
+```
+sample,run,date,prefix,nom_species_id,taxon_id,class,fastq_1,fastq_2
 ```
 
-### Multiple runs of the same sample
-
-The `sample` identifiers have to be the same when you have re-sequenced the same sample more than once e.g. to increase sequencing depth. The pipeline will concatenate the raw reads before performing any downstream analysis. Below is an example for the same sample sequenced across 3 lanes:
-
 ```csv title="samplesheet.csv"
-sample,fastq_1,fastq_2
-CONTROL_REP1,AEG588A1_S1_L002_R1_001.fastq.gz,AEG588A1_S1_L002_R2_001.fastq.gz
-CONTROL_REP1,AEG588A1_S1_L003_R1_001.fastq.gz,AEG588A1_S1_L003_R2_001.fastq.gz
-CONTROL_REP1,AEG588A1_S1_L004_R1_001.fastq.gz,AEG588A1_S1_L004_R2_001.fastq.gz
-```
-
-### Full samplesheet
-
-The pipeline will auto-detect whether a sample is single- or paired-end using the information provided in the samplesheet. The samplesheet can have as many columns as you desire, however, there is a strict requirement for the first 3 columns to match those defined in the table below.
-
-A final samplesheet file consisting of both single- and paired-end data may look something like the one below. This is for 6 samples, where `TREATMENT_REP3` has been sequenced twice.
-
-```csv title="samplesheet.csv"
-sample,fastq_1,fastq_2
-CONTROL_REP1,AEG588A1_S1_L002_R1_001.fastq.gz,AEG588A1_S1_L002_R2_001.fastq.gz
-CONTROL_REP2,AEG588A2_S2_L002_R1_001.fastq.gz,AEG588A2_S2_L002_R2_001.fastq.gz
-CONTROL_REP3,AEG588A3_S3_L002_R1_001.fastq.gz,AEG588A3_S3_L002_R2_001.fastq.gz
-TREATMENT_REP1,AEG588A4_S4_L003_R1_001.fastq.gz,
-TREATMENT_REP2,AEG588A5_S5_L003_R1_001.fastq.gz,
-TREATMENT_REP3,AEG588A6_S6_L003_R1_001.fastq.gz,
-TREATMENT_REP3,AEG588A6_S6_L004_R1_001.fastq.gz,
+sample,run,date,prefix,nom_species_id,taxon_id,class,fastq_1,fastq_2
+OG747,NOVA_250131_AD,250131,OG747.ilmn.250131,70868,70868,Actinopteri,/data/OG747.ilmn.250131.L002_R1.fastq.gz,/data/OG747.ilmn.250131.L002_R2.fastq.gz
+OG747,NOVA_250131_AD,250131,OG747.ilmn.250131,70868,70868,Actinopteri,/data/OG747.ilmn.250131.L003_R1.fastq.gz,/data/OG747.ilmn.250131.L003_R2.fastq.gz
+OG846,NOVA_250131_AD,250131,OG846.ilmn.250131,13397,13397,Chondrichthyes,/data/OG846.ilmn.250131.L002_R1.fastq.gz,/data/OG846.ilmn.250131.L002_R2.fastq.gz
 ```
 
 | Column    | Description                                                                                                                                                                            |
 | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sample`  | Custom sample name. This entry will be identical for multiple sequencing libraries/runs from the same sample. Spaces in sample names are automatically converted to underscores (`_`). |
-| `fastq_1` | Full path to FastQ file for Illumina short reads 1. File has to be gzipped and have the extension ".fastq.gz" or ".fq.gz".                                                             |
-| `fastq_2` | Full path to FastQ file for Illumina short reads 2. File has to be gzipped and have the extension ".fastq.gz" or ".fq.gz".                                                             |
+| `sample`  | OG identifier; use the same value for multiple lanes/runs of the same specimen.                                                                                                        |
+| `run` / `date` / `prefix` | Run metadata (prefix usually follows `OG###.ilmn.<date>` and is used to name downstream files).                                                                        |
+| `nom_species_id`, `taxon_id`, `class` | Taxonomic metadata used for BUSCO lineage selection and reporting; populate from your LIMS/SQL source or set to `unknown` if not available.                  |
+| `fastq_1` | Full path to R1 FASTQ (`.R1.fastq.gz`/`.R1.fq.gz`).                                                                                                                                    |
+| `fastq_2` | Full path to R2 FASTQ (`.R2.fastq.gz`/`.R2.fq.gz`).                                                                                                                                    |
 
-An [example samplesheet](../assets/samplesheet.csv) has been provided with the pipeline.
+The pipeline concatenates multiple rows with the same `sample` before processing.
+
+An [example samplesheet](../assets/samplesheet.csv) has been provided with the pipeline (fill in FASTQ paths before use).
 
 ## Running the pipeline
 
-The typical command for running the pipeline is as follows:
+The typical command for running the pipeline from BaseSpace is as follows:
 
 ```bash
-nextflow run nf-core/oceangenomesdraftgenomes --input ./samplesheet.csv --outdir ./results --genome GRCh37 -profile docker
+nextflow run main.nf \
+  -profile singularity \
+  -c pawsey_profile.config \
+  --run NEXT_250724_ET \
+  --bs_config ~/.basespace/default.cfg \
+  --sql_config ~/postgresql_details/oceanomics.cfg \
+  --gxdb "/scratch/references/Foreign_Contamination_Screening" \
+  --busco_acti_db "/scratch/references/busco_db/actinopterygii_odb10" \
+  --busco_vert_db "/scratch/references/busco_db/vertebrata_odb10" \
+  --outdir /scratch/pawsey0964/$USER/oceangenomesdraftgenomes
 ```
 
-This will launch the pipeline with the `docker` configuration profile. See below for more information about profiles.
+To reuse existing FASTQs instead of downloading:
+
+```bash
+nextflow run main.nf \
+  -profile singularity \
+  -c pawsey_profile.config \
+  --input ./samplesheet.csv \
+  --skip_download_reads true \
+  --outdir ./results
+```
+
+See below for more information about profiles.
 
 Note that the pipeline will create the following files in your working directory:
 

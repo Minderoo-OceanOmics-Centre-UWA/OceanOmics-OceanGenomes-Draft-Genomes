@@ -14,6 +14,46 @@
 
 > Andrews, S. (2010). FastQC: A Quality Control Tool for High Throughput Sequence Data [Online].
 
+- [fastp](https://pubmed.ncbi.nlm.nih.gov/30423086/)
+
+> Chen S, Zhou Y, Chen Y, Gu J. fastp: an ultra-fast all-in-one FASTQ preprocessor. Bioinformatics. 2018 Sep 1;34(17):i884-i890. doi: 10.1093/bioinformatics/bty560.
+
+- [MEGAHIT](https://pubmed.ncbi.nlm.nih.gov/25609793/)
+
+> Li D, Liu CM, Luo R, Sadakane K, Lam TW. MEGAHIT: an ultra-fast single-node solution for large and complex metagenomics assembly via succinct de Bruijn graph. Bioinformatics. 2015 May 15;31(10):1674-6. doi: 10.1093/bioinformatics/btv033.
+
+- [meryl / GenomeScope2](https://pubmed.ncbi.nlm.nih.gov/32319669/)
+
+> Ranallo-Benavidez TR, Jaron KS, Schatz MC. GenomeScope 2.0 and Smudgeplot for reference-free profiling of polyploid genomes. Bioinformatics. 2020 Apr 15;36(13):3687–3690. doi: 10.1093/bioinformatics/btaa111.
+
+- [NCBI FCS-GX / FCS adaptor](https://www.ncbi.nlm.nih.gov/datasets/docs/reference-docs/command-line/fcs/overview/)
+
+> NCBI Foreign Contamination Screen (FCS-GX) and adaptor screens; see NCBI documentation for tool description and usage.
+
+- [Tiara](https://pubmed.ncbi.nlm.nih.gov/35403833/)
+
+> Karlicki M, Slodkowicz-Kowalska A, Wasik S, Deorowicz S. Tiara: Deep learning-based classification system for eukaryotic sequences. PeerJ. 2022 Apr 1;10:e13182. doi: 10.7717/peerj.13182.
+
+- [BBMap](https://www.osti.gov/biblio/1241166)
+
+> Bushnell B. BBMap: A fast, accurate, splice-aware aligner. Lawrence Berkeley National Lab. 2014. LBNL Report LBNL-7065E.
+
+- [BUSCO](https://pubmed.ncbi.nlm.nih.gov/34320154/)
+
+> Manni M, Berkeley MR, Seppey M, Simão FA, Zdobnov EM. BUSCO Update: Novel and Streamlined Workflows along with Broader and Deeper Phylogenetic Coverage for Scoring of Eukaryotic, Prokaryotic, and Viral Genomes. Mol Biol Evol. 2021 Oct;38(10):4647-4654. doi: 10.1093/molbev/msab199.
+
+- [BWA-MEM2](https://ieeexplore.ieee.org/document/8731803)
+
+> Vasimuddin M, Misra S, Li H, Aluru S. Efficient Architecture-Aware Acceleration of BWA-MEM for Multicore Systems. 2019 IEEE International Parallel and Distributed Processing Symposium (IPDPS). doi: 10.1109/IPDPS.2019.00041.
+
+- [Merqury](https://pubmed.ncbi.nlm.nih.gov/33097036/)
+
+> Rhie A, Walenz BP, Koren S, Phillippy AM. Merqury: reference-free quality, completeness, and phasing assessment for genome assemblies. Genome Biol. 2020 Nov 4;21(1):245. doi: 10.1186/s13059-020-02134-9.
+
+- [Gfastats](https://pubmed.ncbi.nlm.nih.gov/33751296/)
+
+> Moerman T, Kurelović B, Startek M, Baert J, Callewaert N, Consortium T, Vandepoele K. Gfastats: conversion, evaluation and manipulation of genome sequences using assembly graphs. Bioinformatics. 2021 Jul 1;37(13):1921–1922. doi: 10.1093/bioinformatics/btab092.
+
 - [MultiQC](https://pubmed.ncbi.nlm.nih.gov/27312411/)
 
 > Ewels P, Magnusson M, Lundin S, Käller M. MultiQC: summarize analysis results for multiple tools and samples in a single report. Bioinformatics. 2016 Oct 1;32(19):3047-8. doi: 10.1093/bioinformatics/btw354. Epub 2016 Jun 16. PubMed PMID: 27312411; PubMed Central PMCID: PMC5039924.

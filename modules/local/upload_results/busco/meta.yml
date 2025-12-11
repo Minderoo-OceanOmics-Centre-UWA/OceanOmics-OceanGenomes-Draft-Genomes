@@ -1,0 +1,42 @@
+name: push_busco_results
+description: Upload BUSCO short summary metrics to the SQL database.
+keywords:
+  - busco
+  - upload
+  - sql
+tools:
+  - python:
+      description: Python with psycopg2 for database insertion.
+      homepage: https://www.python.org/
+      documentation: https://docs.python.org/3/
+      licence: ["PSF-2.0"]
+
+input:
+  - - meta:
+        type: map
+        description: Groovy Map containing sample metadata (id, prefix, run, date).
+    - busco_short_summary:
+        type: file
+        description: BUSCO short summary JSON/TSV to upload.
+        pattern: "*"
+    - config:
+        type: file
+        description: PostgreSQL connection config.
+
+output:
+  - upload:
+      - "*.busco.upload.txt":
+          type: file
+          description: Log of database upload operations for BUSCO metrics.
+          pattern: "*.busco.upload.txt"
+  - versions:
+      - versions.yml:
+          type: file
+          description: File containing software versions.
+          pattern: "versions.yml"
+
+authors:
+  - "@tpeirce"
+
+maintainers:
+  - "@tpeirce"

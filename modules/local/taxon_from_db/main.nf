@@ -11,6 +11,7 @@ process TAXON {
 
     output:
     tuple val(meta), path(repaired_files), path("${meta.id}_taxon_meta.csv")
+    path "versions.yml", emit: versions
 
     script:
     """

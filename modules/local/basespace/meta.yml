@@ -31,6 +31,11 @@ output:
           type: file
           description: Metadata JSON files emitted by the BaseSpace CLI download.
           pattern: "*.json"
+  - versions:
+      - versions.yml:
+          type: file
+          description: File containing software versions.
+          pattern: "versions.yml"
 
 authors:
   - "@tpeirce"

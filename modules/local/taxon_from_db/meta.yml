@@ -39,6 +39,11 @@ output:
           type: file
           description: Table containing taxonomy metadata fetched for the sample.
           pattern: "*_taxon_meta.csv"
+  - versions:
+      - versions.yml:
+          type: file
+          description: File containing software versions.
+          pattern: "versions.yml"
 
 authors:
   - "@tpeirce"

@@ -5,6 +5,7 @@ process CREATE_SAMPLESHEET {
     container "${ workflow.containerEngine == 'singularity' && !task.ext.singularity_pull_docker_container ?
         'docker://tylerpeirce/psycopg2:0.1' :
         'tylerpeirce/psycopg2:0.1' }"
+    conda "${moduleDir}/environment.yml"
 
     input:
     val reads_list
@@ -12,6 +13,7 @@ process CREATE_SAMPLESHEET {
 
     output:
     path("${params.run}_samplesheet.csv"), emit: samplesheet
+    path "versions.yml"                   , emit: versions
 
     when:
     !params.input

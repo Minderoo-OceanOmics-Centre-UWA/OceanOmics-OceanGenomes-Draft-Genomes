@@ -1,0 +1,50 @@
+name: calculate_sequencing_coverage
+description: Compute theoretical sequencing coverage from fastp JSON and GenomeScope2 outputs.
+keywords:
+  - coverage
+  - genomescope2
+  - fastp
+  - qc
+tools:
+  - python:
+      description: Python for coverage calculations and JSON/TSV parsing.
+      homepage: https://www.python.org/
+      documentation: https://docs.python.org/3/
+      licence: ["PSF-2.0"]
+
+input:
+  - - meta:
+        type: map
+        description: |
+          Groovy Map containing sample information (id, prefix, run, date).
+    - fastp_json:
+        type: file
+        description: fastp JSON report with read/bp counts.
+        pattern: "*.json"
+    - genomescope_summary:
+        type: file
+        description: GenomeScope2 summary text file with genome size estimates.
+        pattern: "*_summary.txt"
+
+output:
+  - coverage_report:
+      - "*_sequencing_coverage.txt":
+          type: file
+          description: Human-readable coverage summary report.
+          pattern: "*_sequencing_coverage.txt"
+  - coverage_json:
+      - "*_coverage_summary.json":
+          type: file
+          description: JSON summary of coverage metrics for downstream aggregation.
+          pattern: "*_coverage_summary.json"
+  - versions:
+      - versions.yml:
+          type: file
+          description: File containing software versions.
+          pattern: "versions.yml"
+
+authors:
+  - "@tpeirce"
+
+maintainers:
+  - "@tpeirce"

@@ -12,6 +12,7 @@ process BASESPACE {
     output:
     path "*/*fastq.gz", emit: fastqs
     path "*/*json"    , emit: jsons
+    path "versions.yml", emit: versions
 
     script:
     """
@@ -27,6 +28,12 @@ process BASESPACE {
         echo \$PREFIX \$ID ">>" $run_id
         ./bs download dataset ---input-run \$RUNID -i \$ID -o \$PREFIX
     done
+
+    bs_version=\$(./bs --version 2>/dev/null | head -n 1 | awk '{print \$NF}')
+    cat <<-END_VERSIONS > versions.yml
+    "${task.process}":
+        bs: "\${bs_version:-unknown}"
+    END_VERSIONS
     
     """
 }
