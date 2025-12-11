@@ -179,61 +179,61 @@ workflow OCEANGENOMES_DRAFTGENOMES {
     }
 
 
-    //
+    //  have included in this in the samplesheet curation now, so commenting out for the time being.
     // MODULE: TAXON - Run once if either decontamination or QC is not skipped
     //
 
-    if (!params.skip_genome_decontamination || !params.skip_genome_qc) {
-    // Determine which assembly data to use for taxon lookup
-    ch_assembly_for_taxon = !params.skip_genome_decontamination ? 
-        ch_genome_assembly_results : 
-        Channel.fromPath(params.precomputed_genome_decontamination_results ?: [], checkIfExists: true)
-                .map { file ->
-                    def assembly_id = file.baseName
-                    def parts = assembly_id.split('\\.')
-                    def meta_id = parts[0]
-                    def date = parts[2]
-                    def sample_id = parts[0..2].join('.')
-                    def assembly_prefix = parts[0..3].join('.')
-                    def meta = [
-                        id: meta_id,
-                        run: params.run,
-                        date: date,
-                        prefix: sample_id,
-                        assembly_prefix: assembly_prefix
-                    ]
-                    return tuple(meta, file)
-                }
+    // if (!params.skip_genome_decontamination || !params.skip_genome_qc) {
+    // // Determine which assembly data to use for taxon lookup
+    // ch_assembly_for_taxon = !params.skip_genome_decontamination ? 
+    //     ch_genome_assembly_results : 
+    //     Channel.fromPath(params.precomputed_genome_decontamination_results ?: [], checkIfExists: true)
+    //             .map { file ->
+    //                 def assembly_id = file.baseName
+    //                 def parts = assembly_id.split('\\.')
+    //                 def meta_id = parts[0]
+    //                 def date = parts[2]
+    //                 def sample_id = parts[0..2].join('.')
+    //                 def assembly_prefix = parts[0..3].join('.')
+    //                 def meta = [
+    //                     id: meta_id,
+    //                     run: params.run,
+    //                     date: date,
+    //                     prefix: sample_id,
+    //                     assembly_prefix: assembly_prefix
+    //                 ]
+    //                 return tuple(meta, file)
+    //             }
 
-        TAXON (
-            ch_assembly_for_taxon,
-            params.sql_config
-        )
-        .map { meta, fasta, taxon_csv_file ->
-            def taxon_row = taxon_csv_file
-                .splitCsv(header: true)
-                .first()
+    //     TAXON (
+    //         ch_assembly_for_taxon,
+    //         params.sql_config
+    //     )
+    //     .map { meta, fasta, taxon_csv_file ->
+    //         def taxon_row = taxon_csv_file
+    //             .splitCsv(header: true)
+    //             .first()
 
-            def updated_meta = meta + [
-                nom_species_id: taxon_row.nominal_species_id,
-                taxon_id: taxon_row.taxon_id,
-                class   : taxon_row.class
-            ]
+    //         def updated_meta = meta + [
+    //             nom_species_id: taxon_row.nominal_species_id,
+    //             taxon_id: taxon_row.taxon_id,
+    //             class   : taxon_row.class
+    //         ]
 
-            tuple(updated_meta, fasta)
-        }
-        .set { ch_assembly_with_taxon }
+    //         tuple(updated_meta, fasta)
+    //     }
+    //     .set { ch_assembly_with_taxon }
 
-        // Error handling for missing taxon_id
-        ch_assembly_with_taxon.map { meta, assembly_file ->
-            if (!meta.taxon_id) error "❗ taxon_id not found for sample ${meta.id}"
-            tuple(meta, assembly_file)
-        }
-    } else {
-        ch_assembly_with_taxon = Channel.empty()
-    }
+    //     // Error handling for missing taxon_id
+    //     ch_assembly_with_taxon.map { meta, assembly_file ->
+    //         if (!meta.taxon_id) error "❗ taxon_id not found for sample ${meta.id}"
+    //         tuple(meta, assembly_file)
+    //     }
+    // } else {
+    //     ch_assembly_with_taxon = Channel.empty()
+    // }
 
-
+    ch_assembly_with_taxon = ch_genome_assembly_results
     //
     // SUBWORKFLOW: GENOME_DECONTAMINATION
     //

@@ -19,7 +19,7 @@ include { OCEANGENOMES_DRAFTGENOMES } from './workflows/draftgenomes'
 
 // Draft genome assembly subworkflows
 include { DOWNLOAD_READS            } from './subworkflows/local/download'
-include { samplesheetHybrid         } from './subworkflows/local/samplesheetHybrid'
+include { PREPARE_SAMPLESHEET         } from './subworkflows/local/prepare_samplesheet'
 
 // Pipeline subworkflows
 include { PIPELINE_INITIALISATION   } from './subworkflows/local/utils_nfcore_oceangenomes_draftgenomes_pipeline'
@@ -46,8 +46,6 @@ workflow NFCORE_OCEANGENOMES_DRAFTGENOMES {
     main:
     
     ch_multiqc_files = Channel.empty()
-    samplesheet = params.input ? Channel.fromPath(params.input) : Channel.empty()
-    ch_samplesheetHybrid_results = Channel.empty()
 
     //
     // WORKFLOW: Run pipeline
@@ -74,20 +72,21 @@ workflow NFCORE_OCEANGENOMES_DRAFTGENOMES {
     // Run the samplesheetHybrid to process input file or the DOWNLOAD_READS output
     //
 
-    if (!params.skip_fastp_fastqc) {
-        samplesheetHybrid(
-            ch_download_reads_results,
-            samplesheet
-        )
-        ch_samplesheetHybrid_results = samplesheetHybrid.out.samplesheet // tuple(meta, reads) meta: id, run, date, prefix
-    }
+    PREPARE_SAMPLESHEET(
+        params.input,
+        ch_download_reads_results,
+        "${run_id}_samplesheet"            
+    )
+    // samplesheetHybrid.out.samplesheet_file.view { file_path -> "📄 Samplesheet CSV written to: ${file_path}" }
+    ch_samplesheet = PREPARE_SAMPLESHEET.out.samplesheet // tuple(meta, reads) meta: id, run, date, prefix
+    
 
     //
     // WORKFLOW: Run main Draft Genomes workflow
     //
     
     OCEANGENOMES_DRAFTGENOMES (
-        ch_samplesheetHybrid_results,
+        ch_samplesheet,
         sql_config
     )
 

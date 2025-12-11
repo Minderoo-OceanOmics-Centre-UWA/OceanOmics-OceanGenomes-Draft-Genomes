@@ -101,6 +101,20 @@ workflow GENOME_ASSEMBLY {
     ch_versions = ch_versions.mix(MEGAHIT.out.versions.first())
 
     //
+    // Collect files
+    //
+
+    // ch_multiqc_files = ch_multiqc_files.mix(BASESPACE.out.json.collect{it[1]})
+    // ch_multiqc_files = ch_multiqc_files.mix(BBMAP_REPAIR.out.log.collect{it})
+    ch_versions = ch_versions.mix(MERYL_COUNT.out.versions.first())
+    ch_versions = ch_versions.mix(MERYL_UNIONSUM.out.versions.first())
+    ch_versions = ch_versions.mix(MERYL_HISTOGRAM.out.versions.first())
+    ch_versions = ch_versions.mix(GENOMESCOPE2.out.versions.first())
+    ch_versions = ch_versions.mix(CALCULATE_SEQUENCING_COVERAGE.out.versions.first())
+    ch_versions = ch_versions.mix(COMPILE_JSON_TO_CSV.out.versions.first())
+    ch_versions = ch_versions.mix(MEGAHIT.out.versions.first())
+
+    //
     // Emit outputs
     //
 

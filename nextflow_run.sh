@@ -1,4 +1,4 @@
-module load nextflow/24.10.0
+module load nextflow/25.04.6
 module load singularity/4.1.0-nompi
 
 RUN=NOVA_250606_ADJP

@@ -1,6 +1,6 @@
 process BUSCO_BUSCO {
     tag "${meta.id}"
-    label 'process_high_memory'
+    label 'process_high'
 
     conda "${moduleDir}/environment.yml"
     container "${workflow.containerEngine == 'singularity' && !task.ext.singularity_pull_docker_container
@@ -40,7 +40,9 @@ process BUSCO_BUSCO {
     def db_used = meta.class == 'Actinopteri' ? "acti" : "vert"
     def prefix = task.ext.prefix ?: "${meta.assembly_prefix}.busco.${db_used}"
     busco_lineage = "--lineage_dataset ${busco_db}" // Function in workflow determines busco databased used in OceanOmics pipeline.
-    
+    // Use persistent output directory for checkpoint/resume capability
+    def checkpoint_base = "${params.outdir}/busco_checkpoints"
+    def output_dir = "${checkpoint_base}/${prefix}"    
 
     """
     # Fix Augustus for Apptainer
@@ -73,11 +75,14 @@ process BUSCO_BUSCO {
     done
     cd ..
 
+    mkdir -p $output_dir
+
     busco \\
         --cpu ${task.cpus} \\
         --in "\$INPUT_SEQS" \\
-        --out ${prefix} \\
+        --out_path ${output_dir} \\
         --mode ${mode} \\
+        --restart \\
         ${busco_lineage} \\
         ${args}
 
@@ -87,15 +92,16 @@ process BUSCO_BUSCO {
     # find and remove broken symlinks from the cleanup
     find . -xtype l -delete
 
+    
     # Move files to avoid staging/publishing issues
-    mv ${prefix}/batch_summary.txt ${prefix}.batch_summary.txt
-    mv ${prefix}/*/*/short_summary.txt ${prefix}.short_summary.txt
-    mv ${prefix}/*/*/short_summary.json ${prefix}.short_summary.json
-    mv ${prefix}/*/*/full_table.tsv ${prefix}.full_table.tsv
-    mv ${prefix}/*/*/busco_sequences ${prefix}.busco_sequences
-    mv ${prefix}/*/*/missing_busco_list.tsv ${prefix}.missing_busco_list.tsv
-    mv ${prefix}/logs ${prefix}.logs
-    mv ${prefix}/*/logs/* ${prefix}.logs
+    cp ${output_dir}/*/batch_summary.txt ${prefix}.batch_summary.txt
+    cp ${output_dir}/*/*/*/short_summary.txt ${prefix}.short_summary.txt
+    cp ${output_dir}/*/*/*/short_summary.json ${prefix}.short_summary.json
+    cp ${output_dir}/*/*/*/full_table.tsv ${prefix}.full_table.tsv
+    cp -r ${output_dir}/*/*/*/busco_sequences ${prefix}.busco_sequences
+    cp ${output_dir}/*/*/*/missing_busco_list.tsv ${prefix}.missing_busco_list.tsv
+    cp -r ${output_dir}/*/*/logs ${prefix}.logs
+    cp ${output_dir}/*/*/*/logs/* ${prefix}.logs
 
     tar -czvf ${prefix}.busco_sequences.tar.gz ${prefix}.busco_sequences
     md5sum ${prefix}.busco_sequences.tar.gz > ${prefix}.busco_sequences.tar.gz.md5 &&  rm -rf ${prefix}.busco_sequences

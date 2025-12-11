@@ -17,23 +17,29 @@ TIMESTAMP=\$(date +%y%m%d_%H%M%S)
 SCRIPT_NAME="run_${params.run}_mitogenomes_\${TIMESTAMP}.sh"
 
 cat > \$SCRIPT_NAME << "EOF"
-module load nextflow/24.10.0
+module load nextflow/25.04.6
 module load singularity/4.1.0-nompi
 
-mkdir -p ../mitogenomes/${params.run}_mitogenomes
+# Get the absolute path to the current directory
+RUN_DIR="\$(realpath .)"
 
-/scratch/pawsey0964/tpeirce/nextflow-24.10.5-dist -log \$(realpath ../mitogenomes/${params.run}_mitogenomes/.nextflow.log) \\
-    run main.nf \\
+OUT_DIR=\$(realpath ../mitogenomes/${params.run}_mitogenomes)
+
+mkdir -p \$OUT_DIR
+cd \$OUT_DIR
+
+nextflow -log \$OUT_DIR/.nextflow_${params.run}.log \\
+    run \$RUN_DIR/main.nf \\
     -work-dir ./work/${params.run}_mitogenomes \\
-    -c pawsey_profile.config \\
+    -c \$RUN_DIR/pawsey_profile.config \\
     -resume \\
     -profile singularity \\
     -with-report \\
     --input_dir \"${input_pattern}\" \\
-    --outdir \$(realpath ../mitogenomes/${params.run}_mitogenomes) \\
+    --outdir \$OUT_DIR \\
     --blast_db_dir \$(realpath ../blast_dbs) \\
     --taxonkit_db_dir \$(realpath ../) \\
-    --curated_blast_db /scratch/pawsey0964/pbayer/OceanGenomes.CuratedNT.NBDLTranche1and2.CuratedBOLD.fasta \\
+    --curated_blast_db /software/projects/pawsey0964/curated_db/OceanGenomes.CuratedNT.NBDLTranche1and2and3.CuratedBOLD.NoDuplicate.fasta \\
     --organelle_type \"animal_mt\" \\
     --kvalue \"21\" \\
     --bs_config "${params.bs_config}" \\

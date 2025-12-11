@@ -137,6 +137,21 @@ workflow GENOME_DECONTAMINATION {
     ch_versions = ch_versions.mix(BBMAP_FILTERBYNAME_TIARA.out.versions.first())
 
     //
+    // Collect files
+    //
+
+    // ch_multiqc_files = ch_multiqc_files.mix(BASESPACE.out.json.collect{it[1]})
+    // ch_multiqc_files = ch_multiqc_files.mix(BBMAP_REPAIR.out.log.collect{it})
+    ch_versions = ch_versions.mix(FCSGX_RUNGX.out.versions.first())
+    ch_versions = ch_versions.mix(FCSGX_CLEANGENOME.out.versions.first())
+    ch_versions = ch_versions.mix(BBMAP_FILTERBYNAME.out.versions.first())
+    ch_versions = ch_versions.mix(BBMAP_REFORMAT.out.versions.first())
+    ch_versions = ch_versions.mix(FCS_FCSADAPTOR.out.versions.first())
+    ch_versions = ch_versions.mix(FSCSGX_CLEANGENOME_ADAPTOR.out.versions.first())
+    ch_versions = ch_versions.mix(TIARA_TIARA.out.versions.first())
+    ch_versions = ch_versions.mix(BBMAP_FILTERBYNAME_TIARA.out.versions.first())
+
+    //
     // Emit outputs
     //
     

@@ -7,33 +7,81 @@
     "items": {
         "type": "object",
         "properties": {
-          "sample": {
-            "type": "string",
-            "description": "Unique sample identifier (e.g., OG747).",
-            "pattern": "^\\S+$"
-          },
-          "run": {
-            "type": "string",
-            "description": "Sequencing run ID (e.g., NOVA_250131_AD).",
-            "pattern": "^[A-Za-z0-9_\\-\\.]+$"
-          },
-          "date": {
-            "type": "string",
-            "description": "Date code extracted from run (e.g., 250131).",
-            "pattern": "^\\d{6}$"
-          },
-          "R1": {
-            "type": "string",
-            "description": "Path to R1 FASTQ file.",
-            "pattern": ".*\\.R1\\.fq\\.gz$"
-          },
-          "R2": {
-            "type": "string",
-            "description": "Path to R2 FASTQ file.",
-            "pattern": ".*\\.R2\\.fq\\.gz$"
-          }
+            "sample": {
+                "type": "string",
+                "pattern": "^OG\\d+[A-Za-z]?(-\\d+)?(?:_HIC[A-Za-z]*\\d*)?$",
+                "errorMessage": "Sample name must start with 'OG' followed by numbers, optionally followed by a letter and/or dash-number (e.g., OG820M-1, OG785, OG764)",
+                "meta": ["id"],
+                "description": "Sample identifier starting with OG followed by numbers"
+            },
+            "run": {
+                "type": "string",
+                "description": "Sequencing run ID (e.g., NOVA_250131_AD).",
+                "pattern": "^[A-Za-z0-9_\\-\\.]+$"
+            },
+            "date": {
+                "description": "Date code extracted from run (e.g., 250131).",
+                "anyOf": [
+                    {
+                        "type": "string",
+                        "pattern": "^\\d{6}$"
+                    },
+                    {
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                ]
+            },
+            "prefix": {
+                "type": "string",
+                "description": "Sample prefix used to name downstream files (e.g., OG747.ilmn.250131).",
+                "pattern": "^\\S+$"
+            },
+            "nom_species_id": {
+                "type": "string",
+                "description": "Nominal species identifier returned from the SQL metadata lookup."
+            },
+            "taxon_id": {
+                "description": "NCBI taxon identifier or 'unknown'/ 'None' when absent.",
+                "anyOf": [
+                    {
+                        "type": "string",
+                        "pattern": "^(unknown|None)$"
+                    },
+                    {
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                ]
+            },
+            "class": {
+                "type": "string",
+                "description": "Higher-level taxonomic class (e.g., Actinopteri, Mammalia)."
+            },
+            "fastq_1": {
+                "type": "string",
+                "format": "file-path",
+                "description": "Path to R1 FASTQ file.",
+                "pattern": "\\.R1\\.(fastq|fq)\\.gz?$"
+            },
+            "fastq_2": {
+                "type": "string",
+                "format": "file-path",
+                "description": "Path to R2 FASTQ file.",
+                "pattern": "\\.R2\\.(fastq|fq)\\.gz?$"
+            }
         },
-        "required": ["sample", "run", "R1", "R2"],
+        "required": [
+            "sample",
+            "run",
+            "date",
+            "prefix",
+            "nom_species_id",
+            "taxon_id",
+            "class",
+            "fastq_1",
+            "fastq_2"
+        ],
         "additionalProperties": false
-      }
+    }
 }

@@ -6,7 +6,7 @@ module load python/3.11.6
 # Make sure you add the run date to the end of your cloned repository
 # eg. $WRKDIR/OceanOmics-draft-genomes$DATE
 
-RUN=NOVA_250606_ADJP
+RUN=NOVA_251031_LMAD
 export RUN
 
 # Dynamically extract date from RUN
@@ -16,7 +16,7 @@ export DATE
 # Dynamically extract Pawsey account from current working directory
 export PAWSEY_ACCOUNT=$(pwd | grep -o '/scratch/pawsey[0-9]\+' | cut -d/ -f3)
 
-export WRKDIR=/scratch/pawsey0964/tpeirce/_NFCORE/_OUT_DIR
+export WRKDIR=/scratch/pawsey0964/tpeirce/$RUN
 
 # Update the location of where you would like your output, or leave as is.
 export rundir=$WRKDIR/draftgenomes
@@ -29,5 +29,5 @@ export scripts=$WRKDIR/OceanOmics-draft-genomes$DATE
 
 export results=./
 export AWS=$WRKDIR/AWS_backup
-export download=$WRKDIR/download/$RUN
+export download=$WRKDIR/basespace/$RUN
 export pooled=$WRKDIR/pooled/$RUN

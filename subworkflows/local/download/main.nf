@@ -66,6 +66,15 @@ workflow DOWNLOAD_READS {
         params.interleave// val(interleave)
     )
 
+    //
+    // Collect files
+    //
+
+    // ch_multiqc_files = ch_multiqc_files.mix(BASESPACE.out.json.collect{it[1]})
+    // ch_multiqc_files = ch_multiqc_files.mix(BBMAP_REPAIR.out.log.collect{it})
+    ch_versions = ch_versions.mix(BASESPACE.out.versions.first())
+    ch_versions = ch_versions.mix(BBMAP_REPAIR.out.versions.first())
+
 
     //
     // Emit outputs

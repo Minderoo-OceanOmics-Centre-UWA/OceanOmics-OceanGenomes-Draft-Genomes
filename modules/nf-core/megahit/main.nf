@@ -27,15 +27,32 @@ process MEGAHIT {
     def args2 = task.ext.args2 ?: ''
     def prefix = task.ext.prefix ?: "${meta.prefix}"
     def reads_command = meta.single_end || !reads[1] ? "-r ${reads[0].join(',')}" : "-1 ${reads[0].join(',')} -2 ${reads[1].join(',')}"
+    def checkpoint_base = "${params.outdir}/megahit_checkpoints"
+    def output_dir = "${checkpoint_base}/${prefix}_megahit_out"
     """
-    megahit \\
-        ${args} \\
-        -m $memory \\
-        -t ${task.cpus} \\
-        ${reads_command} \\
-        --out-prefix ${prefix}
+    # Always use the same output directory for this sample
+    # This way MEGAHIT can resume if it exists
+    if [ -d "${output_dir}" ] && [ -f "${output_dir}/checkpoints.txt" ]; then
+        echo "Found existing MEGAHIT checkpoint, resuming..."
+        megahit \\
+            ${args} \\
+            -m ${memory} \\
+            -t ${task.cpus} \\
+            --continue \\
+            -o ${output_dir}
+    else
+        echo "Starting fresh MEGAHIT assembly..."
+        mkdir -p ${checkpoint_base}
+        megahit \\
+            ${args} \\
+            -m ${memory} \\
+            -t ${task.cpus} \\
+            ${reads_command} \\
+            --out-prefix ${prefix} \\
+            -o ${output_dir}
+    fi
 
-    mv megahit_out/${prefix}.contigs.fa ${prefix}.v129mh.fasta
+    mv ${output_dir}/${prefix}.contigs.fa ${prefix}.v129mh.fasta
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
