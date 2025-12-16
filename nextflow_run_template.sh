@@ -5,12 +5,14 @@ module load singularity/4.1.0-nompi
 RUN=NOVA_251030_LMAD
 BASE="/scratch/pawsey0964/$USER"
 # Outdir is made inside the base directory
-OUT="${BASE}/${RUN}"
+OUT="../${RUN}"
+mkdir -p $OUT
+OUT="$(cd "$OUT" && pwd -P)"
 # Get the absolute path to the current directory
-RUN_DIR="$(realpath .)"
+RUN_DIR="$(pwd -P)"
 # Create output directory and then change into this directory to run the nextflow pipeline.
 # This allows yout to run multiple runs from the same nf-core directory without conflicts.
-mkdir -p $OUT
+
 cd $OUT
 
 nextflow -log .nextflow_$RUN.log \
