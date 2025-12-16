@@ -85,13 +85,13 @@
                 },
                 "busco_acti_db": {
                     "type": "string",
-                    "format": "file-path",
+                    "format": "directory-path",
                     "exists": true,
                     "description": "Path to BUSCO Actinopterygii database."
                 },
                 "busco_vert_db": {
                     "type": "string",
-                    "format": "file-path",
+                    "format": "directory-path",
                     "exists": true,
                     "description": "Path to BUSCO Vertebrata database."
                 },

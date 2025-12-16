@@ -21,11 +21,14 @@ module load nextflow/25.04.6
 module load singularity/4.1.0-nompi
 
 # Get the absolute path to the current directory
-RUN_DIR="\$(realpath .)"
+RUN_DIR="\$(pwd -P)"
 
-OUT_DIR=\$(realpath ../mitogenomes/${params.run}_mitogenomes)
-
+OUT_DIR="../mitogenomes/${params.run}_mitogenomes"
 mkdir -p \$OUT_DIR
+
+OUT_DIR="\$(cd \"\$OUT_DIR\" && pwd -P)"
+
+# Change to output directory to run Nextflow there
 cd \$OUT_DIR
 
 nextflow -log \$OUT_DIR/.nextflow_${params.run}.log \\
