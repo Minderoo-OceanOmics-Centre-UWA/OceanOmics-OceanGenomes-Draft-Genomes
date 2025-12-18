@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Load in the configfile
-. ./configfile.txt
+. ../configfile.txt
 
 ############
 # 1. Perform check on local machine 

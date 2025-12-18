@@ -12,7 +12,7 @@
 #-----------------
 #Loading the required modules
 
-. ./configfile.txt
+. ../configfile.txt
 
 # Zip the meryl database before backing up.
 for i in  "$rundir"/*; do

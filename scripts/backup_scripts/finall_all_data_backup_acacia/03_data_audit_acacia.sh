@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Load in the configfile
-. ./configfile.txt
+. ../configfile.txt
 
 ###########
 # Perform check on acacia to compare with the local workflow check
