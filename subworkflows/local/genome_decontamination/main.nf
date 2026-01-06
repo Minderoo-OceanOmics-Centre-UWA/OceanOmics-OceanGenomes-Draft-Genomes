@@ -85,7 +85,7 @@ workflow GENOME_DECONTAMINATION {
     //
 
     BBMAP_REFORMAT (
-        BBMAP_FILTERBYNAME.out.first_filtered, // tuple val(meta), path("$first_filtered_reads") 
+        BBMAP_FILTERBYNAME.out.fully_filtered_reads, // tuple val(meta), path("$fully_filtered_reads") 
     )
     ch_versions = ch_versions.mix(BBMAP_REFORMAT.out.versions.first())
 
