@@ -8,7 +8,6 @@
 include { FCSGX_RUNGX               } from '../../../modules/nf-core/fcs/fcsgx/rungx'
 include { FCSGX_CLEANGENOME         } from '../../../modules/nf-core/fcs/fcsgx/cleangenome'
 include { BBMAP_FILTERBYNAME        } from '../../../modules/local/bbmap/filterbyname'
-include { BBMAP_REFORMAT            } from '../../../modules/local/bbmap/reformat'
 include { FCS_FCSADAPTOR            } from '../../../modules/nf-core/fcs/fcsadaptor'
 include { FCSGX_CLEANGENOME as FSCSGX_CLEANGENOME_ADAPTOR   } from '../../../modules/nf-core/fcs/fcsgx/cleangenome'
 include { TIARA_TIARA               } from '../../../modules/nf-core/tiara/tiara'
@@ -80,26 +79,17 @@ workflow GENOME_DECONTAMINATION {
     )
     ch_versions = ch_versions.mix(BBMAP_FILTERBYNAME.out.versions.first())
 
-    //
-    // MODULE: Run bbmap reformat
-    //
-
-    BBMAP_REFORMAT (
-        BBMAP_FILTERBYNAME.out.fully_filtered_reads, // tuple val(meta), path("$fully_filtered_reads") 
-    )
-    ch_versions = ch_versions.mix(BBMAP_REFORMAT.out.versions.first())
-
 
     //
     // MODULE: Run fcs adaptor find
     //
 
     FCS_FCSADAPTOR (
-        BBMAP_REFORMAT.out.reads // tuple val(meta), path(reads)
+        BBMAP_FILTERBYNAME.out.fully_filtered_reads, // tuple val(meta), path("$fully_filtered_reads")
     )
     ch_versions = ch_versions.mix(FCS_FCSADAPTOR.out.versions.first())
 
-    filter_adaptors_combined_ch = BBMAP_REFORMAT.out.reads
+    filter_adaptors_combined_ch = BBMAP_FILTERBYNAME.out.fully_filtered_reads
         .join(FCS_FCSADAPTOR.out.adaptor_report, by: 0)
     
     //
@@ -145,7 +135,6 @@ workflow GENOME_DECONTAMINATION {
     ch_versions = ch_versions.mix(FCSGX_RUNGX.out.versions.first())
     ch_versions = ch_versions.mix(FCSGX_CLEANGENOME.out.versions.first())
     ch_versions = ch_versions.mix(BBMAP_FILTERBYNAME.out.versions.first())
-    ch_versions = ch_versions.mix(BBMAP_REFORMAT.out.versions.first())
     ch_versions = ch_versions.mix(FCS_FCSADAPTOR.out.versions.first())
     ch_versions = ch_versions.mix(FSCSGX_CLEANGENOME_ADAPTOR.out.versions.first())
     ch_versions = ch_versions.mix(TIARA_TIARA.out.versions.first())
