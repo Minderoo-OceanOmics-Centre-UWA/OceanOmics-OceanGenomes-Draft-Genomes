@@ -12,7 +12,7 @@ process BBMAP_FILTERBYNAME {
     val(output_format)
  
     output:
-    tuple val(meta), path("$first_filtered_reads")  , emit: first_filtered
+    tuple val(meta), path("$fully_filtered_reads")  , emit: fully_filtered_reads
     tuple val(meta), path ("$filter_report")                         , emit: filter_report
     tuple val(meta), path("$names_to_filter")                        , emit: names_to_filter 
     tuple val(meta), path("${meta.prefix}.contig_count_500bp.txt")   , emit: contigs_under_500bp
@@ -26,7 +26,7 @@ process BBMAP_FILTERBYNAME {
     def prefix = task.ext.prefix ?: "${meta.assembly_prefix}"
     input  = "in=${reads}"
     first_filtered_reads = "${prefix}.rf.fa"
-    fully_filtered_reads = "${prefix}.fa"
+    fully_filtered_reads = "${prefix}.${output_format}"
     filter_report = "${meta.prefix}.filter_report.txt"
     names_to_filter = "${meta.prefix}.review_scaffolds_1kb.txt"
     contigs_under_500bp = "${meta.prefix}.contig_count_500bp.txt"
@@ -113,7 +113,7 @@ process BBMAP_FILTERBYNAME {
     def prefix = task.ext.prefix ?: "${meta.assembly_prefix}"
     input  = "in=${reads}"
     first_filtered_reads = "${prefix}.rf.fa"
-    fully_filtered_reads = "${prefix}.fa"
+    fully_filtered_reads = "${prefix}.${output_format}"
     filter_report = "${meta.prefix}.filter_report.txt"
     names_to_filter = "${meta.prefix}.review_scaffolds_1kb.txt"
     contigs_under_500bp = "${meta.prefix}.contig_count_500bp.txt"
