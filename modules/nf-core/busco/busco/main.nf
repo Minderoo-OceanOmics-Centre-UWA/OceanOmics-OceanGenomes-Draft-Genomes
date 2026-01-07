@@ -77,7 +77,7 @@ process BUSCO_BUSCO {
         --in "\$INPUT_SEQS" \\
         --out ${prefix} \\
         --mode ${mode} \\
-        --lineage_dataset ./${busco_db} \\
+        --lineage_dataset ${busco_db} \\
         ${args}
 
     # clean up
