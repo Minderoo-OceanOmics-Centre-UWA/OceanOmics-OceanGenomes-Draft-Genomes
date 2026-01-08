@@ -2,7 +2,7 @@
 # Load in the configfile
 . ../configfile.txt
 mkdir -p FileCheck
-
+rundir=/scratch/pawsey0964/tpeirce/NOVA_251215_AD/draftgenomes
 for OGdir in $rundir/*; do
 # Set OG and DATE variables (replace with actual values)
     OG=$(basename $OGdir)
@@ -50,7 +50,6 @@ for OGdir in $rundir/*; do
         $OGdir/assemblies/genome/NCBI
         $OGdir/assemblies/genome/$OG.ilmn.*.adaptor-contam.fasta
         $OGdir/assemblies/genome/$OG.ilmn.*.rmadapt.fasta
-        $OGdir/assemblies/genome/$OG.ilmn.*.v129mh.fa
         $OGdir/assemblies/genome/$OG.ilmn.*.v129mh.fasta
         $OGdir/assemblies/genome/$OG.ilmn.*.v129mh.fna
         $OGdir/assemblies/genome/tiara/log_$OG.ilmn.*.tiara.txt
