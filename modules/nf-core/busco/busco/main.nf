@@ -8,7 +8,7 @@ process BUSCO_BUSCO {
         : 'community.wave.seqera.io/library/busco:6.0.0--a9a1426105f81165'}"
 
     input:
-    tuple val(meta), path(fasta, stageAs:'tmp_input/*'), path(busco_db) // 
+    tuple val(meta), path(fasta, stageAs:'tmp_input/*'), val(busco_db)
     val mode                              // Required:    One of genome, proteins, or transcriptome                      
    
 
@@ -80,13 +80,9 @@ process BUSCO_BUSCO {
         --lineage_dataset ${busco_db} \\
         ${args}
 
-    # clean up
-    rm -rf "\$INPUT_SEQS"
-
     # find and remove broken symlinks from the cleanup
     find . -xtype l -delete
 
-    
     # Move files to avoid staging/publishing issues
     mv ${prefix}/batch_summary.txt ${prefix}.batch_summary.txt
     mv ${prefix}/*/*/short_summary.txt ${prefix}.short_summary.txt
@@ -105,7 +101,11 @@ process BUSCO_BUSCO {
         echo "Busco run failed"
         exit 1
     fi
-        
+
+    # clean up
+    rm -rf "\$INPUT_SEQS"
+    rm -rf ${prefix}/*
+
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
         busco: \$( busco --version 2>&1 | sed 's/^BUSCO //' )
@@ -113,7 +113,7 @@ process BUSCO_BUSCO {
     """
 
     stub:
-    def prefix = task.ext.prefix ?: "${meta.id}-${lineage}"
+    def prefix = task.ext.prefix ?: "${meta.assembly_prefix}.busco.${db_used}"
     def fasta_name = files(fasta).first().name - '.gz'
     """
     touch ${prefix}-busco.batch_summary.txt
