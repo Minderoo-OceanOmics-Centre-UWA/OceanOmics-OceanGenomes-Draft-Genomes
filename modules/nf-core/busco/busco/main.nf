@@ -105,6 +105,7 @@ process BUSCO_BUSCO {
     # clean up
     rm -rf "\$INPUT_SEQS"
     rm -rf ${prefix}/*
+    rm -rf tmp.*
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
