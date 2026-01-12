@@ -17,7 +17,7 @@ process BASESPACE {
     script:
     """
     cp /bin/bs .
-    RUNID=\$(./bs list run | grep $run_id | awk '{print \$4}')
+    RUNID=\$(./bs list run | grep "$run_id " | awk '{print \$4}')
 
     #this creates the list of all the lanes for downloading
     ./bs list dataset --input-run \$RUNID | awk '{print \$2;}' | grep 'OG' > ${run_id}.prefix.txt
