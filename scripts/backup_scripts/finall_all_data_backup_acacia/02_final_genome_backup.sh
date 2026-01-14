@@ -45,8 +45,11 @@ for i in  "$rundir"/*; do
 
         wait
 
-        bash 01_data_audit_local.sh
     fi
 done
+
+bash 01_data_audit_local.sh
+
+wait 
 
 rclone move $rundir pawsey0964:oceanomics-draftgenomes/genomes.v2/  --checksum -P
