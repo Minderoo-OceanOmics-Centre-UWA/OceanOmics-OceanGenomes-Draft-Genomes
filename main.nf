@@ -15,7 +15,7 @@
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
 
-include { OCEANGENOMES_DRAFTGENOMES } from './workflows/draftgenomes'
+include { OCEANGENOMES_DRAFTGENOMES } from './workflows/draftgenomes2'
 
 // Draft genome assembly subworkflows
 include { DOWNLOAD_READS            } from './subworkflows/local/download'
