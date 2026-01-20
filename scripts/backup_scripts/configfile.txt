@@ -5,29 +5,27 @@ module load python/3.11.6
 # Update the variable RUN for the run that you are processing. 
 # Update WRKDIR variable as well.
 
-RUN=NOVA_251210_TW
+RUN=XXXX_0000_XX
 export RUN
 
-export WRKDIR=/scratch/pawsey0964/tpeirce/$RUN
+# Dynamically extract Pawsey account from current working directory
+export PAWSEY_ACCOUNT=$(pwd | grep -o '/scratch/pawsey[0-9]\+' | cut -d/ -f3)
+
+export WRKDIR=/scratch/$PAWSEY_ACCOUNT/$USER/$RUN
 
 # Dynamically extract date from RUN
 DATE=$(echo "$RUN" | cut -d'_' -f2)
 export DATE
 
-# Dynamically extract Pawsey account from current working directory
-export PAWSEY_ACCOUNT=$(pwd | grep -o '/scratch/pawsey[0-9]\+' | cut -d/ -f3)
-
 # Update the location of where you would like your output, or leave as is.
-export rundir=/scratch/pawsey0964/tpeirce/NOVA_251210_TW/finished_genomes
-# export rundir=$WRKDIR/draftgenomes
+export rundir=$WRKDIR/draftgenomes
 
 # Update to the location of your Git clone, or make sure it is in your WRKDIR
-export scripts=$WRKDIR/OceanOmics-draft-genomes$DATE
+export scripts=$WRKDIR/OceanOmics-draft-genomes
 
 
 # Leave these variables as is as the scripts use these locations based on the above variables.
 
 export results=./
-export AWS=$WRKDIR/AWS_backup
 export download=$WRKDIR/basespace/$RUN
 export pooled=$WRKDIR/pooled/$RUN
