@@ -14,12 +14,12 @@
 #1. Generate txt file of OG numbers in directory called OGLIST.txt
 # Set the CSV file name
 
-TSV_WF=draftcheck-workflow-local.$DATE.tsv
+TSV_WF=draftcheck-workflow-local.$RUN.tsv
 # Print the TSV header
 echo -e "OGID\tLocNum\tLocSize\tLocBytes" | tee -a $TSV_WF
 
 # Create the OGLIST from the data audit
-OGLIST_FILE=$results/OGLIST.txt
+OGLIST_FILE=$results/OGLIST.$RUN.txt
 ls $rundir > $OGLIST_FILE
 
 # Loop through each OGID in the OGLIST file

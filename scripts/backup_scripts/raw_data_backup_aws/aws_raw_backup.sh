@@ -10,12 +10,12 @@
 
 #-----------------
 # Update the configfile.txt with your AWS and rclone details
-. ../configfile.txt
+# . ../configfile.txt
 
 # Or overwrite variables here
-# RUN=NOVA_251031_TWAD
-# download=/scratch/pawsey0964/tpeirce/NOVA_251031_TWAD/basespace/NOVA_251031_TWAD
+RUN=NOVA_260108_AD
+download=/scratch/pawsey0964/tpeirce/NOVA_260108_AD/basespace/NOVA_260108_AD
 
 #rclone copy $download s3:oceanomics/OceanGenomes/illumina-raw/$RUN --checksum
 
-rclone copy $download s3:oceanomics/OceanGenomes/illumina-raw/$RUN  --checksum
+rclone copy $download s3:oceanomics/OceanGenomes/illumina-raw/$RUN  --checksum --progress
