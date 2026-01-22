@@ -2,12 +2,15 @@ module load nextflow/25.04.6
 module load singularity/4.1.0-nompi
 
 # Define the run name and base directory
-RUN=NOVA_251030_LMAD
+RUN=XXXX_0000_XX
 BASE="/scratch/pawsey0964/$USER"
 # Outdir is made inside the base directory
-OUT="../${RUN}"
+OUT="${BASE}/${RUN}"
 mkdir -p $OUT
 OUT="$(cd "$OUT" && pwd -P)"
+cp -r scripts/backup_scripts $OUT
+# Stamp RUN into copied backup config
+sed -i "s/^RUN=.*/RUN=$RUN/" "$OUT/backup_scripts/configfile.txt"
 # Get the absolute path to the current directory
 RUN_DIR="$(pwd -P)"
 # Create output directory and then change into this directory to run the nextflow pipeline.
@@ -36,6 +39,7 @@ nextflow -log .nextflow_$RUN.log \
     --busco_vert_db "/scratch/references/busco_db/vertebrata_odb10" \
     --tempdir $BASE/tmp \
     --refresh-modules \
+    --skip_bs_download false \
     --skip_download_reads false \
     --skip_fastp_fastqc false \
     --skip_genome_assembly false \
