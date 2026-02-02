@@ -15,7 +15,7 @@
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
 
-include { OCEANGENOMES_DRAFTGENOMES } from './workflows/draftgenomes2'
+include { OCEANGENOMES_DRAFTGENOMES } from './workflows/draftgenomes'
 
 // Draft genome assembly subworkflows
 include { DOWNLOAD_READS            } from './subworkflows/local/download'
@@ -47,6 +47,13 @@ workflow NFCORE_OCEANGENOMES_DRAFTGENOMES {
     
     ch_multiqc_files = Channel.empty()
 
+    def warnIfEmpty = { ch, label ->
+        ch.ifEmpty {
+            log.warn "No files match pattern `${label}`; continuing with empty channel."
+            null
+        }.filter { it != null }
+    }
+
     //
     // WORKFLOW: Run pipeline
     //
@@ -59,7 +66,7 @@ workflow NFCORE_OCEANGENOMES_DRAFTGENOMES {
         ch_download_reads_results = DOWNLOAD_READS.out.repaired_reads // tuple val(ogid), path("${prefix}.R*.fq.gz") 
     } else if (params.precomputed_download_reads_results) {
         // Use precomputed results if analysis is skipped
-        ch_download_reads_results = Channel.fromFilePairs(params.precomputed_download_reads_results, checkIfExists: true)
+        ch_download_reads_results = warnIfEmpty(Channel.fromFilePairs(params.precomputed_download_reads_results, checkIfExists: false), params.precomputed_download_reads_results)
             .map { sample_id, reads ->
                 def meta_id = sample_id.split('\\.')[0] // Extract meta_id which is the first part of sample name seperated by .
                 return tuple(meta_id, reads) // or tuple(meta, reads) depending on your downstream processes

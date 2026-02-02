@@ -41,6 +41,14 @@ workflow OCEANGENOMES_DRAFTGENOMES {
         .map { meta, reads -> tuple(meta.prefix ?: meta.id, meta) }
         .distinct()
     
+    def warnIfEmpty = { ch, label ->
+        ch.ifEmpty {
+            log.warn "No files match pattern `${label}`; continuing with empty channel."
+            null
+        }.filter { it != null }
+    }
+
+
     /*
     The workflow uses conditional logic to handle steps that may be skipped in the nextflow_run script.
     If a process is not skipped, the corresponding subworkflow is executed and standard outputs are provided.
@@ -62,7 +70,7 @@ workflow OCEANGENOMES_DRAFTGENOMES {
         ch_fastp_json = FASTP_FASTQC.out.fastp_json // tuple val(meta), path('*.fastq.gz')
     } else if (params.precomputed_fastp_fastqc_results) {
         // Use precomputed results if analysis is skipped
-        ch_precomputed_fastp_fastqc = Channel.fromFilePairs(params.precomputed_fastp_fastqc_results, checkIfExists: true)
+        ch_precomputed_fastp_fastqc = warnIfEmpty(Channel.fromFilePairs(params.precomputed_fastp_fastqc_results, checkIfExists: false), params.precomputed_fastp_fastqc_results)
             .map { reads_id, reads ->
                 def sample_id = reads_id.split('\\.')[0..2].join('.')
                 tuple(sample_id, reads)
@@ -71,7 +79,7 @@ workflow OCEANGENOMES_DRAFTGENOMES {
             .join(ch_precomputed_fastp_fastqc)
             .map { key, meta, reads -> tuple(meta, reads) }
 
-        ch_precomputed_fastp_json = Channel.fromPath(params.precomputed_fastp_json, checkIfExists: true)
+        ch_precomputed_fastp_json = warnIfEmpty(Channel.fromPath(params.precomputed_fastp_json, checkIfExists: false), params.precomputed_fastp_json)
             .map { json ->
                 def sample_id = json.baseName.split('\\.')[0..2].join('.')
                 tuple(sample_id, json)
@@ -108,7 +116,7 @@ workflow OCEANGENOMES_DRAFTGENOMES {
         ch_genomescope_summary = GENOME_ASSEMBLY.out.genomescope_summary
     } else if (params.precomputed_genome_assembly_results) {
         // Use precomputed results if analysis is skipped
-        ch_precomputed_genome_assembly_results = Channel.fromPath(params.precomputed_genome_assembly_results, checkIfExists: true)
+        ch_precomputed_genome_assembly_results = warnIfEmpty(Channel.fromPath(params.precomputed_genome_assembly_results, checkIfExists: false), params.precomputed_genome_assembly_results)
         .map { file ->
             def assembly_id = file.baseName
             def parts = assembly_id.split('\\.')
@@ -122,7 +130,7 @@ workflow OCEANGENOMES_DRAFTGENOMES {
                 tuple(meta + [assembly_prefix: assembly_prefix], file)
             }
 
-        ch_precomputed_genomescope_summary = Channel.fromPath(params.precomputed_genomescope_summary, checkIfExists: true)
+        ch_precomputed_genomescope_summary = warnIfEmpty(Channel.fromPath(params.precomputed_genomescope_summary, checkIfExists: false), params.precomputed_genomescope_summary)
         .map { file ->
             // Extract sample_id from the file basename
             def file_name = file.baseName
@@ -133,7 +141,7 @@ workflow OCEANGENOMES_DRAFTGENOMES {
             .join(ch_precomputed_genomescope_summary)
             .map { key, meta, file -> tuple(meta, file) }
 
-        ch_precomputed_meryl_db = Channel.fromPath(params.precomputed_meryl_results, type: 'dir', checkIfExists: true)
+        ch_precomputed_meryl_db = warnIfEmpty(Channel.fromPath(params.precomputed_meryl_results, type: 'dir', checkIfExists: false), params.precomputed_meryl_results)
         .map { meryl_dir ->
             // Extract sample_id from the .meryl directory name (the * before .meryl)
             def sample_id = meryl_dir.name.replace('.meryl', '')
@@ -168,7 +176,7 @@ workflow OCEANGENOMES_DRAFTGENOMES {
     } else if (params.precomputed_genome_decontamination_results) {
         // If decontamination is skipped, use the taxon-enriched precomputed data
         // that was already processed in the TAXON section above
-        ch_precomputed_genome_decontamination_results = Channel.fromPath(params.precomputed_genome_decontamination_results, checkIfExists: true)
+        ch_precomputed_genome_decontamination_results = warnIfEmpty(Channel.fromPath(params.precomputed_genome_decontamination_results, checkIfExists: false), params.precomputed_genome_decontamination_results)
             .map { file ->
                 def assembly_id = file.baseName
                 def parts = assembly_id.split('\\.')
@@ -181,7 +189,7 @@ workflow OCEANGENOMES_DRAFTGENOMES {
             .map { key, meta, assembly_prefix, file ->
                 tuple(meta + [assembly_prefix: assembly_prefix], file)
             }
-        ch_precomputed_filter_report = Channel.fromPath(params.precomputed_filter_report, checkIfExists: true)
+        ch_precomputed_filter_report = warnIfEmpty(Channel.fromPath(params.precomputed_filter_report, checkIfExists: false), params.precomputed_filter_report)
             .map { file ->
                 def file_name = file.baseName
                 def sample_id = file_name.split('\\.')[0..2].join('.')  // Parts 0, 1, and 2 joined with dots
@@ -191,7 +199,7 @@ workflow OCEANGENOMES_DRAFTGENOMES {
             .join(ch_precomputed_filter_report)
             .map { key, meta, file -> tuple(meta, file) }
 
-        ch_precomputed_contigs_under_500bp = Channel.fromPath(params.precomputed_contigs_under_500bp, checkIfExists: true)
+        ch_precomputed_contigs_under_500bp = warnIfEmpty(Channel.fromPath(params.precomputed_contigs_under_500bp, checkIfExists: false), params.precomputed_contigs_under_500bp)
             .map { file ->
                 def file_name = file.baseName
                 def sample_id = file_name.split('\\.')[0..2].join('.')  // Parts 0, 1, and 2 joined with dots
@@ -201,7 +209,7 @@ workflow OCEANGENOMES_DRAFTGENOMES {
             .join(ch_precomputed_contigs_under_500bp)
             .map { key, meta, file -> tuple(meta, file) }
 
-        ch_precomputed_tiara_filter_summary = Channel.fromPath(params.precomputed_tiara_filter_summary, checkIfExists: true)
+        ch_precomputed_tiara_filter_summary = warnIfEmpty(Channel.fromPath(params.precomputed_tiara_filter_summary, checkIfExists: false), params.precomputed_tiara_filter_summary)
             .map { file ->
                 def file_name = file.baseName
                 def sample_id = file_name.split('\\.')[0..2].join('.')  // Parts 0, 1, and 2 joined with dots
@@ -240,7 +248,7 @@ workflow OCEANGENOMES_DRAFTGENOMES {
             Or have a seperate draft genome results subwokflow which is probably better, to keep the mitogenome pipeline seperate.
             Will need to add in all the outputs and the if skipped paths to files evenbtually.
         */
-        ch_precomputed_busoco_short_summary = Channel.fromPath(params.precomputed_busoco_short_summary_results, checkIfExists: true)
+        ch_precomputed_busoco_short_summary = warnIfEmpty(Channel.fromPath(params.precomputed_busoco_short_summary_results, checkIfExists: false), params.precomputed_busoco_short_summary_results)
             .map { file ->
                 def sample_id = file.baseName.split('\\.')[0..2].join('.')
                 tuple(sample_id, file)
@@ -249,7 +257,7 @@ workflow OCEANGENOMES_DRAFTGENOMES {
             .join(ch_precomputed_busoco_short_summary)
             .map { key, meta, file -> tuple(meta, file) }
 
-        ch_precomputed_merqury_results = Channel.fromPath(params.precomputed_merqury_results_results, checkIfExists: true)
+        ch_precomputed_merqury_results = warnIfEmpty(Channel.fromPath(params.precomputed_merqury_results_results, checkIfExists: false), params.precomputed_merqury_results_results)
             .map { file ->
                 def sample_id = file.baseName.split('\\.')[0..2].join('.')
                 tuple(sample_id, file)
@@ -258,7 +266,7 @@ workflow OCEANGENOMES_DRAFTGENOMES {
             .join(ch_precomputed_merqury_results)
             .map { key, meta, file -> tuple(meta, file) }
 
-        ch_precomputed_gfastats_results = Channel.fromPath(params.precomputed_gfastats_results_results, checkIfExists: true)
+        ch_precomputed_gfastats_results = warnIfEmpty(Channel.fromPath(params.precomputed_gfastats_results_results, checkIfExists: false), params.precomputed_gfastats_results_results)
             .map { file ->
                 def sample_id = file.baseName.split('\\.')[0..2].join('.')
                 tuple(sample_id, file)

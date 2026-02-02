@@ -109,6 +109,15 @@
                     "type": "string",
                     "description": "Path to pooled reads directory (used when skip_download_reads is true)."
                 },
+                "skip_bs_download": {
+                    "type": "boolean",
+                    "description": "Skip BaseSpace download module and use bs_fastq_glob for local FASTQs.",
+                    "default": false
+                },
+                "bs_fastq_glob": {
+                    "type": "string",
+                    "description": "Glob path to locally available FASTQ files to use when skip_bs_download is true."
+                },
                 "rclonedest": {
                     "type": "string",
                     "description": "source:destination for rclone",

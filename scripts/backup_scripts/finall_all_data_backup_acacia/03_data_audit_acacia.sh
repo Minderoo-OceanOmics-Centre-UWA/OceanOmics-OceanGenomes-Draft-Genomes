@@ -3,17 +3,21 @@
 # Load in the configfile
 . ../configfile.txt
 
+## Use these variables to override configfile settings if needed, otherwise comment them out
+# RUN=NOVA_260108_AD
+# rundir=/scratch/pawsey0964/tpeirce/NOVA_260108_AD/draftgenomes
+
 ###########
 # Perform check on acacia to compare with the local workflow check
 ##########
 # Set the TSV file name  
-TSV=$results/draftcheck-workflow-acacia.$DATE.tsv
+TSV=$results/draftcheck-workflow-acacia.$RUN.tsv
 
 #Add headings
 echo -e "OGID\tLocNum\tLocSize\tLocBytes" | tee -a $TSV
 
 # Read the OGLIST from the data audit
-OGLIST_FILE=$results/OGLIST.txt
+OGLIST_FILE=$results/OGLIST.$RUN.txt
 
 
 # Loop through each OGID in the OGLIST file
@@ -28,4 +32,4 @@ done < "$OGLIST_FILE"
 ###########
 # Join the two tables together to make comparison easier
 ###########
-join -t $'\t' draftcheck-workflow-local.$DATE.tsv $TSV > $results/draftcheck-workflow-join.$DATE.tsv
+join -t $'\t' draftcheck-workflow-local.$RUN.tsv $TSV > $results/_draftcheck-workflow-join.$RUN.tsv

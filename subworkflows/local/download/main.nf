@@ -28,21 +28,29 @@ workflow DOWNLOAD_READS {
 
     ch_versions = Channel.empty()
     ch_multiqc_files = Channel.empty()
+    ch_basespace_fastqs = Channel.empty()
 
     //
     // MODULE: Using the run_id, downloads the full run from basespace
     //
 
-    BASESPACE (
-        run_id, // val run
-        bs_config //params.bs_config// path config ??? i dont think this one is needed maybe a carry over from adams script but not used in this code
-    )
+    if (!params.skip_bs_download) {
+        BASESPACE (
+            run_id, // val run
+            bs_config //params.bs_config// path config ??? i dont think this one is needed maybe a carry over from adams script but not used in this code
+        )
+        ch_basespace_fastqs = BASESPACE.out.fastqs
+    } else if (params.bs_fastq_glob) {
+        ch_basespace_fastqs = Channel.fromPath(params.bs_fastq_glob, checkIfExists: true)
+    } else {
+        log.warn "skip_bs_download enabled but no bs_fastq_glob provided; continuing with empty read set."
+    }
 
     //
     // Group fastq reads by meta_id
     //
 
-    reads_by_meta_id = BASESPACE.out.fastqs
+    reads_by_meta_id = ch_basespace_fastqs
         .flatten()
         .map { file -> 
             def matcher = file.name =~ /^([A-Z]+\d+)/

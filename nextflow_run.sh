@@ -1,7 +1,7 @@
 module load nextflow/25.04.6
 module load singularity/4.1.0-nompi
 
-RUN=NOVA_250606_ADJP
+RUN=XXXX_0000_XX
 
 nextflow run main.nf \
     -work-dir ./work/$RUN \
@@ -22,13 +22,12 @@ nextflow run main.nf \
     --busco_vert_db "/scratch/references/busco_db/vertebrata_odb10" \
     --tempdir /scratch/pawsey0964/$USER/tmp \
     --refresh-modules \
-    --skip_download_reads true \
-    --skip_fastp_fastqc true \
-    --skip_genome_assembly true \
-    --skip_genome_decontamination true \
+    --skip_bs_download false \
+    --skip_download_reads false \
+    --skip_fastp_fastqc false \
+    --skip_genome_assembly false \
+    --skip_genome_decontamination false \
     --skip_genome_qc false \
     --skip_upload_results false \
-
-
     # --input assets/samplesheet.csv \  # include a samplesheet if you are not downloading sample.
     

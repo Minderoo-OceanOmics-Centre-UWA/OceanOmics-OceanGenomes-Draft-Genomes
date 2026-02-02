@@ -99,10 +99,14 @@ workflow GENOME_QC {
     
     // Determining which BUSCO database to use based on meta.class
     ch_with_busco_db = assembly.map { meta, file ->
-        def busco_db = meta.class == 'Actinopteri' ? 
-            params.busco_acti_db : 
-            params.busco_vert_db
-        
+        def busco_db
+        if ( meta.class == 'Actinopteri' ) {
+            busco_db = params.busco_acti_db
+        } else if ( meta.class == 'Cniddaria' ) {
+            busco_db = params.busco_metazoa_db
+        } else {
+            busco_db = params.busco_vert_db
+        }
         return [meta, file, busco_db]
     }
 
@@ -201,4 +205,3 @@ workflow GENOME_QC {
     multiqc_files = ch_multiqc_files             // channel: [ path(multiqc_files) ]
     versions = ch_versions              // channel: [ path(versions.yml) ]
 }
-
