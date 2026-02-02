@@ -22,7 +22,7 @@ process GFASTATS {
     script:
     def args   = task.ext.args ?: ''
     def prefix = task.ext.prefix ?: "${meta.assembly_prefix}"
-    def output_sequences = out_fmt ? "--out-format ${prefix}.${out_fmt}" : ""
+    // def output_sequences = out_fmt ? "--out-format ${prefix}.${out_fmt}" : ""
     """
     # Get genomesize from $summary file
     genome_size=\$(cat $summary | grep 'Genome Haploid Length' | grep -o 'bp.*' | sed 's/bp//g' | sed 's/ //g' | sed 's/,//g')
@@ -30,7 +30,6 @@ process GFASTATS {
     gfastats \\
         $args \\
         --threads $task.cpus \\
-        $output_sequences \\
         $assembly \\
         \$genome_size \\
         > ${prefix}.assembly_summary
