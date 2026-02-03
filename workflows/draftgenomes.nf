@@ -72,7 +72,12 @@ workflow OCEANGENOMES_DRAFTGENOMES {
         // Use precomputed results if analysis is skipped
         ch_precomputed_fastp_fastqc = warnIfEmpty(Channel.fromFilePairs(params.precomputed_fastp_fastqc_results, checkIfExists: false), params.precomputed_fastp_fastqc_results)
             .map { reads_id, reads ->
-                def sample_id = reads_id.split('\\.')[0..2].join('.')
+                def parts = reads_id.split('\\.')
+                def sample_id = parts[0..2].join('.')
+                def nova_match = reads_id =~ /NOVA_(\d{6})_/
+                if (nova_match.find()) {
+                    sample_id = "${parts[0]}.${parts[1]}.${nova_match.group(1)}"
+                }
                 tuple(sample_id, reads)
             }
         ch_fastp_fastqc_results = ch_meta_by_prefix
@@ -81,7 +86,12 @@ workflow OCEANGENOMES_DRAFTGENOMES {
 
         ch_precomputed_fastp_json = warnIfEmpty(Channel.fromPath(params.precomputed_fastp_json, checkIfExists: false), params.precomputed_fastp_json)
             .map { json ->
-                def sample_id = json.baseName.split('\\.')[0..2].join('.')
+                def parts = json.baseName.split('\\.')
+                def sample_id = parts[0..2].join('.')
+                def nova_match = json.baseName =~ /NOVA_(\d{6})_/
+                if (nova_match.find()) {
+                    sample_id = "${parts[0]}.${parts[1]}.${nova_match.group(1)}"
+                }
                 tuple(sample_id, json)
             }
         ch_fastp_json = ch_meta_by_prefix
@@ -262,9 +272,16 @@ workflow OCEANGENOMES_DRAFTGENOMES {
                 def sample_id = file.baseName.split('\\.')[0..2].join('.')
                 tuple(sample_id, file)
             }
+            .groupTuple()
+            .map { sample_id, files ->
+                def completeness_stats = files.find { it.name.endsWith('completeness.stats') }
+                def qv_tsv = files.find { it.name.endsWith('.qv') }
+                tuple(sample_id, completeness_stats, qv_tsv)
+            }
+            .filter { sample_id, completeness_stats, qv_tsv -> completeness_stats && qv_tsv }
         ch_merqury_results = ch_meta_by_prefix
             .join(ch_precomputed_merqury_results)
-            .map { key, meta, file -> tuple(meta, file) }
+            .map { key, meta, completeness_stats, qv_tsv -> tuple(meta, completeness_stats, qv_tsv) }
 
         ch_precomputed_gfastats_results = warnIfEmpty(Channel.fromPath(params.precomputed_gfastats_results_results, checkIfExists: false), params.precomputed_gfastats_results_results)
             .map { file ->

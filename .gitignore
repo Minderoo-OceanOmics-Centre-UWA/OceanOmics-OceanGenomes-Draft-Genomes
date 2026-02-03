@@ -13,6 +13,11 @@ scripts/backup_scripts/finall_all_data_backup_acacia/OGLIST*
 scripts/backup_scripts/raw_data_backup_aws/slurm*
 nextflow_run_N*
 scripts/backup_scripts/fastqc_backup_acacia/draftfastpcheck*
+scripts/backup_scripts/fastqc_backup_acacia/_draftfastpcheck*
 scripts/backup_scripts/finall_all_data_backup_acacia/draftcheck*
+scripts/backup_scripts/finall_all_data_backup_acacia/_draftcheck*
 scripts/backup_scripts/raw_data_backup_aws/draftRAWcheck*
+scripts/backup_scripts/raw_data_backup_aws/_draftRAWcheck*
 scripts/backup_scripts/check_files/FileCheck*
+scripts/backup_scripts/check_files/_FileCheck*
+scripts/backup_scripts/configfile.txt
