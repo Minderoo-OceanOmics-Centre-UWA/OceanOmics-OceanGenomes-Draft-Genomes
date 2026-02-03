@@ -5,7 +5,8 @@
 # everytime you run this new you need to remove the FileCheck directory if it exists and the _FileCheck_report.tsv file
 ## Use this variable to override configfile settings if needed, otherwise comment them out
 # rundir=/scratch/pawsey0964/tpeirce/NOVA_251215_AD/draftgenomes
-
+rm -r FileCheck
+rm _FileCheck.tsv
 
 mkdir -p FileCheck
 
