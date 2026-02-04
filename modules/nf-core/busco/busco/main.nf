@@ -37,7 +37,8 @@ process BUSCO_BUSCO {
         error("Mode must be one of 'genome', 'proteins', or 'transcriptome'.")
     }
     def args = task.ext.args ?: ''
-    def db_used = meta.class == 'Actinopteri' ? "acti" : "vert"
+    // Determine database prefix for output naming using the first 4 letters of the database name.
+    def db_used = busco_db.tokenize('/').last().take(4)
     def prefix = task.ext.prefix ?: "${meta.assembly_prefix}.busco.${db_used}"
 
 
