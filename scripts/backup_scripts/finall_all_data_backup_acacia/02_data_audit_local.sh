@@ -21,7 +21,7 @@ ls $rundir > $OGLIST_FILE
 # Loop through each OGID in the OGLIST file
 while IFS= read -r OGID; do
   # Get the sizes from rclone for each location
-  SIZES=$(echo $(rclone size $rundir/$OGID | sed 's/Total/|-- Local/g'))
+  SIZES=$(echo $(rclone size "$rundir/$OGID" --exclude "fastp/**" | sed 's/Total/|-- Local/g'))
   
   # Format and append the results to the TSV
   echo $OGID $SIZES | sed -E 's/(\(|\))//g' | awk '{print $1,$6,$10 $11,$12;}' | sed 's/ /\t/g' | tee -a $TSV_WF

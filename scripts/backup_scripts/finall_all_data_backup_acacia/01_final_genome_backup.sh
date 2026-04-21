@@ -24,9 +24,9 @@ for i in  "$rundir"/*; do
     if [ -d "$i" ]; then  # Check if the item in $rundir is a directory
         OG=$(basename "$i")
 
-        # Copy the fastq files and final assembly to the s3 bucket
+        # Copy selected fastp outputs and the final assembly to the S3 bucket
         S3=s3://oceanomics/OceanGenomes/analysed-data/draft-genomes
-        rclone copy "$i/fastp/" "$S3/$OG"/ --include "*.fastq.gz" --checksum -P
+        rclone copy "$i/fastp/" "$S3/$OG"/ --include "*.fastq.gz" --include "*fastp.json" --checksum -P
         rclone copy "$i/assemblies/genome/" "$S3/$OG"/ --include "*.fna" --checksum -P
 
         # Find the .meryl directory using 'find'
@@ -57,7 +57,7 @@ bash 02_data_audit_local.sh
 
 wait 
 
-rclone move $rundir pawsey0964:oceanomics-draftgenomes/genomes.v2/  --checksum -P
+rclone move "$rundir" pawsey0964:oceanomics-draftgenomes/genomes.v2/ --exclude "**/fastp/**" --checksum -P
 
 wait
 
