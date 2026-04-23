@@ -14,6 +14,7 @@ include { UPLOAD_RESULTS            } from '../subworkflows/local/upload_results
 // Modules
 include { TRIGGER_MITOGENOME        } from '../modules/local/trigger_mitogenome'
 include { MULTIQC                   } from '../modules/nf-core/multiqc/main'
+include { MULTIQC_PER_SAMPLE        } from '../modules/local/multiqc_per_sample/main'
 include { TAXON                     } from '../modules/local/taxon_from_db'
 
 // Functions
@@ -37,8 +38,12 @@ workflow OCEANGENOMES_DRAFTGENOMES {
     main:
     
     ch_multiqc_files = Channel.empty()
+    ch_sample_multiqc_inputs = Channel.empty()
     ch_meta_by_prefix = samplesheet
         .map { meta, reads -> tuple(meta.prefix ?: meta.id, meta) }
+        .distinct()
+    ch_meta_by_id = samplesheet
+        .map { meta, reads -> tuple(meta.id, meta) }
         .distinct()
     
     def warnIfEmpty = { ch, label ->
@@ -326,16 +331,27 @@ workflow OCEANGENOMES_DRAFTGENOMES {
     if (!params.skip_genome_qc) {ch_multiqc_files = ch_multiqc_files.mix(GENOME_QC.out.multiqc_files)}
     // if (!params.skip_upload_results) {ch_multiqc_files = ch_multiqc_files.mix(UPLOAD_RESULTS.out.multiqc_files)}
 
+    if (!params.skip_fastp_fastqc) {ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(FASTP_FASTQC.out.multiqc_inputs)}
+    if (!params.skip_genome_qc) {ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(GENOME_QC.out.multiqc_inputs)}
+
     // 
     // Collect all versions
     //
 
-    ch_collated_versions = Channel.empty()
-    if (!params.skip_fastp_fastqc) {ch_collated_versions = ch_collated_versions.mix(FASTP_FASTQC.out.versions)}
-    if (!params.skip_genome_assembly) {ch_collated_versions = ch_collated_versions.mix(GENOME_ASSEMBLY.out.versions)}
-    if (!params.skip_genome_decontamination) {ch_collated_versions = ch_collated_versions.mix(GENOME_DECONTAMINATION.out.versions)}
-    if (!params.skip_genome_qc) {ch_collated_versions = ch_collated_versions.mix(GENOME_QC.out.versions)}
-    // if (!params.skip_upload_results) {ch_collated_versions = ch_collated_versions.mix(UPLOAD_RESULTS.out.versions)}
+    ch_versions = Channel.empty()
+    if (!params.skip_fastp_fastqc) {ch_versions = ch_versions.mix(FASTP_FASTQC.out.versions)}
+    if (!params.skip_genome_assembly) {ch_versions = ch_versions.mix(GENOME_ASSEMBLY.out.versions)}
+    if (!params.skip_genome_decontamination) {ch_versions = ch_versions.mix(GENOME_DECONTAMINATION.out.versions)}
+    if (!params.skip_genome_qc) {ch_versions = ch_versions.mix(GENOME_QC.out.versions)}
+    // if (!params.skip_upload_results) {ch_versions = ch_versions.mix(UPLOAD_RESULTS.out.versions)}
+
+    ch_collated_versions = softwareVersionsToYAML(ch_versions)
+        .collectFile(
+            storeDir: "${params.outdir}/pipeline_info",
+            name: 'software_versions.yml',
+            sort: true,
+            newLine: true
+        )
 
     //
     // MODULE: MultiQC
@@ -353,24 +369,53 @@ workflow OCEANGENOMES_DRAFTGENOMES {
     summary_params      = paramsSummaryMap(
         workflow, parameters_schema: "nextflow_schema.json")
     ch_workflow_summary = Channel.value(paramsSummaryMultiqc(summary_params))
-    ch_multiqc_files = ch_multiqc_files.mix(
-        ch_workflow_summary.collectFile(name: 'workflow_summary_mqc.yaml'))
+    ch_workflow_summary_file = ch_workflow_summary.collectFile(name: 'workflow_summary_mqc.yaml')
     ch_multiqc_custom_methods_description = params.multiqc_methods_description ?
         file(params.multiqc_methods_description, checkIfExists: true) :
         file("$projectDir/assets/methods_description_template.yml", checkIfExists: true)
     ch_methods_description                = Channel.value(
         methodsDescriptionText(ch_multiqc_custom_methods_description))
-
-    ch_multiqc_files = ch_multiqc_files.mix(ch_collated_versions)
-    ch_multiqc_files = ch_multiqc_files.mix(
-        ch_methods_description.collectFile(
-            name: 'methods_description_mqc.yaml',
-            sort: true
-        )
+    ch_methods_description_file = ch_methods_description.collectFile(
+        name: 'methods_description_mqc.yaml',
+        sort: true
     )
+
+    ch_multiqc_files = ch_multiqc_files.mix(ch_workflow_summary_file)
+    ch_multiqc_files = ch_multiqc_files.mix(ch_collated_versions)
+    ch_multiqc_files = ch_multiqc_files.mix(ch_methods_description_file)
+
+    ch_sample_multiqc_common_files = Channel.empty()
+    ch_sample_multiqc_common_files = ch_sample_multiqc_common_files.mix(ch_workflow_summary_file)
+    ch_sample_multiqc_common_files = ch_sample_multiqc_common_files.mix(ch_collated_versions)
+    ch_sample_multiqc_common_files = ch_sample_multiqc_common_files.mix(ch_methods_description_file)
+    ch_sample_multiqc_common_files = ch_sample_multiqc_common_files.collect()
+
+    ch_sample_multiqc_grouped = ch_sample_multiqc_inputs
+        .map { meta, file -> tuple(meta.id, file) }
+        .groupTuple(by: 0)
+        .join(ch_meta_by_id)
+        .map { id, sample_files, meta -> tuple(meta, sample_files) }
+
+    ch_sample_multiqc_payload = ch_sample_multiqc_grouped
+        .combine(ch_sample_multiqc_common_files)
+        .map { row ->
+            def meta = row[0]
+            def sample_files = row[1] instanceof List ? row[1].flatten() : [row[1]]
+            def common_files = row.size() > 2 ? row[2..-1].flatten() : []
+            tuple(meta, sample_files + common_files)
+        }
 
     MULTIQC (
         ch_multiqc_files.collect(),
+        ch_multiqc_config.toList(),
+        ch_multiqc_custom_config.toList(),
+        ch_multiqc_logo.toList(),
+        [],
+        []
+    )
+
+    MULTIQC_PER_SAMPLE (
+        ch_sample_multiqc_payload,
         ch_multiqc_config.toList(),
         ch_multiqc_custom_config.toList(),
         ch_multiqc_logo.toList(),
@@ -385,6 +430,7 @@ workflow OCEANGENOMES_DRAFTGENOMES {
 
     emit:
     multiqc_report = MULTIQC.out.report.toList() // channel: /path/to/multiqc_report.html 
+    sample_multiqc_reports = MULTIQC_PER_SAMPLE.out.report // channel: [ tuple(meta), path(multiqc_report.html) ]
     multiqc_files = ch_multiqc_files             // channel: [ path(multiqc_files) ]
-    versions = ch_collated_versions              // channel: [ path(versions.yml) ]
+    versions = ch_collated_versions              // channel: [ path(software_versions.yml) ]
 }

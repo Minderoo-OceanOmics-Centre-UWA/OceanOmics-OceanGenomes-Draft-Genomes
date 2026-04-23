@@ -1,4 +1,5 @@
-process MULTIQC {
+process MULTIQC_PER_SAMPLE {
+    tag "${meta.id}"
     label 'process_single'
 
     conda "${moduleDir}/environment.yml"
@@ -7,7 +8,7 @@ process MULTIQC {
         'biocontainers/multiqc:1.27--pyhdfd78af_0' }"
 
     input:
-    path  multiqc_files, stageAs: "?/*"
+    tuple val(meta), path(multiqc_files, stageAs: "?/*")
     path(multiqc_config)
     path(extra_multiqc_config)
     path(multiqc_logo)
@@ -15,10 +16,9 @@ process MULTIQC {
     path(sample_names)
 
     output:
-    path "*multiqc_report.html", emit: report
-    path "*_data"              , emit: data
-    // path "*_plots"             , optional:true, emit: plots
-    path "versions.yml"        , emit: versions
+    tuple val(meta), path("*multiqc_report.html"), emit: report
+    tuple val(meta), path("*_data")              , emit: data
+    path "versions.yml"                          , emit: versions
 
     when:
     task.ext.when == null || task.ext.when
@@ -60,7 +60,6 @@ process MULTIQC {
     stub:
     """
     mkdir multiqc_data
-    mkdir multiqc_plots
     touch multiqc_report.html
 
     cat <<-END_VERSIONS > versions.yml

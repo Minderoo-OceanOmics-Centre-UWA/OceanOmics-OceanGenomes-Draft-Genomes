@@ -87,6 +87,7 @@ workflow GENOME_QC {
 
     ch_versions = Channel.empty()
     ch_multiqc_files = Channel.empty()
+    ch_multiqc_inputs = Channel.empty()
     ch_merqury_results = Channel.empty()
     ch_gfastats_results = Channel.empty()
 
@@ -120,6 +121,7 @@ workflow GENOME_QC {
         Channel.value('genome') // val mode // Required:    One of genome, proteins, or transcriptome
     )
     ch_versions = ch_versions.mix(BUSCO_BUSCO.out.versions.first())
+    ch_multiqc_inputs = ch_multiqc_inputs.mix(BUSCO_BUSCO.out.short_summaries_txt)
 
     // Channel for extract busco sequences
     ch_extract_busco_input = join_on_keys_and_merge([BUSCO_BUSCO.out.full_table, assembly])
@@ -190,6 +192,7 @@ workflow GENOME_QC {
     // Collect files
     //
 
+    ch_multiqc_files = ch_multiqc_files.mix(ch_multiqc_inputs.collect { it[1] })
     ch_versions = ch_versions.mix(BUSCO_BUSCO.out.versions.first())
     ch_versions = ch_versions.mix(EXTRACT_BUSCO_SEQUENCES.out.versions.first())
     ch_versions = ch_versions.mix(BWAMEM2_INDEX.out.versions.first())
@@ -203,5 +206,6 @@ workflow GENOME_QC {
     merqury_results = ch_merqury_results // channel: tuple val(meta), path("*.completeness.stats"), path("${prefix}.qv")
     gfastats_results = ch_gfastats_results // channel: tuple val(meta), path("*.assembly_summary")
     multiqc_files = ch_multiqc_files             // channel: [ path(multiqc_files) ]
+    multiqc_inputs = ch_multiqc_inputs           // channel: [ tuple(meta), path(multiqc_file) ]
     versions = ch_versions              // channel: [ path(versions.yml) ]
 }
