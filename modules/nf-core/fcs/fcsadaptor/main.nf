@@ -16,6 +16,7 @@ process FCS_FCSADAPTOR {
     tuple val(meta), path("*.fcs_adaptor.log")        , emit: log
     tuple val(meta), path("*.pipeline_args.yaml")     , emit: pipeline_args
     tuple val(meta), path("*.skipped_trims.jsonl")    , emit: skipped_trims
+    tuple val(meta), path("26_fcs_adaptor.tool_params_mqcrow.html"), emit: tool_params
     path "versions.yml"                               , emit: versions
 
     // Downstream handling of optional cleaned_assembly
@@ -42,6 +43,8 @@ process FCS_FCSADAPTOR {
     def args = task.ext.args ?: '--euk' // --prok || --euk
     def prefix = task.ext.prefix ?: "${meta.prefix}"
     def FCSADAPTOR_VERSION = '0.5.0' // WARN: Version information not provided by tool on CLI. Please update this string when bumping container versions.
+    def effective_args = ["av_screen_x -o output/", args, assembly.toString()].findAll { it?.trim() }.join(' ')
+    def note = 'Screens the cleaned assembly for adaptor contamination and stages the adaptor report plus trimmed sequences.'
     """
     av_screen_x \\
         -o output/ \\
@@ -58,6 +61,9 @@ process FCS_FCSADAPTOR {
     cp "output/fcs_adaptor.log"           "${prefix}.fcs_adaptor.log"
     cp "output/pipeline_args.yaml"        "${prefix}.pipeline_args.yaml"
     cp "output/skipped_trims.jsonl"       "${prefix}.skipped_trims.jsonl"
+    cat <<-END_TOOL_PARAMS > 26_fcs_adaptor.tool_params_mqcrow.html
+    <tr><td>FCS Adaptor</td><td><samp>${effective_args}</samp></td><td>${note}</td></tr>
+    END_TOOL_PARAMS
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
@@ -72,12 +78,18 @@ process FCS_FCSADAPTOR {
     }
     def prefix = task.ext.prefix ?: "${meta.id}"
     def FCSADAPTOR_VERSION = '0.5.0'
+    def args = task.ext.args ?: '--euk'
+    def effective_args = ["av_screen_x -o output/", args, assembly.toString()].findAll { it?.trim() }.join(' ')
+    def note = 'Screens the cleaned assembly for adaptor contamination and stages the adaptor report plus trimmed sequences.'
 
     """
     touch ${prefix}.fcs_adaptor_report.txt
     touch ${prefix}.fcs_adaptor.log
     touch ${prefix}.pipeline_args.yaml
     touch ${prefix}.skipped_trims.jsonl
+    cat <<-END_TOOL_PARAMS > 26_fcs_adaptor.tool_params_mqcrow.html
+    <tr><td>FCS Adaptor</td><td><samp>${effective_args}</samp></td><td>${note}</td></tr>
+    END_TOOL_PARAMS
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

@@ -19,6 +19,7 @@ process FASTP {
     tuple val(meta), path('*.json')           , emit: json
     tuple val(meta), path('*.html')           , emit: html
     tuple val(meta), path('*.log')            , emit: log
+    tuple val(meta), path("20_fastp.tool_params_mqcrow.html"), emit: tool_params
     path "versions.yml"                       , emit: versions
 
     when:
@@ -29,6 +30,8 @@ process FASTP {
     def base_prefix = task.ext.prefix ?: "${meta.id}.ilmn"
     def prefix = task.ext.prefix ?: "${base_prefix}.${meta.date}"
     def prefix_json = task.ext.prefix ?: "${base_prefix}.${meta.run}"
+    def effective_args = ['--dedup', '--cut_tail', '--verbose', '--max_len1 300', '--max_len2 300', '--length_required 100', "--thread ${task.cpus}"].join(' ')
+    def note = args ? "Paired-end trimming with JSON/HTML reports. Configured ext.args <samp>${args}</samp> is defined but not interpolated by this module." : 'Paired-end trimming with JSON/HTML reports.'
    
     """
     fastp \\
@@ -48,6 +51,10 @@ process FASTP {
         --thread $task.cpus \\
         2>&1 | tee ${prefix}.fastp.log
 
+    cat <<-END_TOOL_PARAMS > 20_fastp.tool_params_mqcrow.html
+    <tr><td>FASTP</td><td><samp>${effective_args}</samp></td><td>${note}</td></tr>
+    END_TOOL_PARAMS
+
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
@@ -57,7 +64,10 @@ process FASTP {
 
 
     stub:
+    def args                = task.ext.args ?: ''
     def prefix              = task.ext.prefix ?: "${meta.id}"
+    def effective_args      = ['--dedup', '--cut_tail', '--verbose', '--max_len1 300', '--max_len2 300', '--length_required 100', "--thread ${task.cpus}"].join(' ')
+    def note                = args ? "Paired-end trimming with JSON/HTML reports. Configured ext.args <samp>${args}</samp> is defined but not interpolated by this module." : 'Paired-end trimming with JSON/HTML reports.'
     def touch_reads         = (discard_trimmed_pass) ? "" : (is_single_output) ? "echo '' | gzip > ${prefix}.fastp.fastq.gz" : "echo '' | gzip > ${prefix}_1.fastp.fastq.gz ; echo '' | gzip > ${prefix}_2.fastp.fastq.gz"
     def touch_merged        = (!is_single_output && save_merged) ? "echo '' | gzip >  ${prefix}.merged.fastq.gz" : ""
     def touch_fail_fastq    = (!save_trimmed_fail) ? "" : meta.single_end ? "echo '' | gzip > ${prefix}.fail.fastq.gz" : "echo '' | gzip > ${prefix}.paired.fail.fastq.gz ; echo '' | gzip > ${prefix}_1.fail.fastq.gz ; echo '' | gzip > ${prefix}_2.fail.fastq.gz"
@@ -68,6 +78,9 @@ process FASTP {
     touch "${prefix}.fastp.json"
     touch "${prefix}.fastp.html"
     touch "${prefix}.fastp.log"
+    cat <<-END_TOOL_PARAMS > 20_fastp.tool_params_mqcrow.html
+    <tr><td>FASTP</td><td><samp>${effective_args}</samp></td><td>${note}</td></tr>
+    END_TOOL_PARAMS
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

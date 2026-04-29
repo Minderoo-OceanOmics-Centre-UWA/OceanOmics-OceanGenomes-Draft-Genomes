@@ -14,6 +14,8 @@ process CALCULATE_SEQUENCING_COVERAGE {
     output:
     tuple val(meta), path("*_sequencing_coverage.txt"), emit: coverage_report
     path("*_coverage_summary.json"), emit: coverage_json
+    tuple val(meta), path("*_coverage_summary_mqc.yaml"), emit: multiqc
+    tuple val(meta), path("20_calculate_sequencing_coverage.tool_params_mqcrow.html"), emit: tool_params
     path "versions.yml", emit: versions
 
     when:
@@ -27,6 +29,7 @@ def prefix = task.ext.prefix ?: "${meta.prefix}"
 import json
 import re
 import platform
+import html
 
 # Read FastP JSON report to get sequencing statistics
 with open("${fastp_json}", 'r') as f:
@@ -77,6 +80,23 @@ coverage_after = total_bases_after / estimated_genome_size if estimated_genome_s
 bases_removed = total_bases_before - total_bases_after
 reads_removed = total_reads_before - total_reads_after
 filtering_efficiency = (bases_removed / total_bases_before * 100) if total_bases_before > 0 else 0
+data_retention = total_bases_after / total_bases_before * 100 if total_bases_before > 0 else 0
+
+if coverage_after >= 50:
+    coverage_status = "EXCELLENT"
+    coverage_recommendation = "Suitable for high-quality genome assembly and variant calling."
+elif coverage_after >= 30:
+    coverage_status = "GOOD"
+    coverage_recommendation = "Suitable for genome assembly and most downstream analyses."
+elif coverage_after >= 20:
+    coverage_status = "ADEQUATE"
+    coverage_recommendation = "Suitable for basic genome assembly."
+elif coverage_after >= 10:
+    coverage_status = "LOW"
+    coverage_recommendation = "Draft assembly may be possible, but additional sequencing may help."
+else:
+    coverage_status = "INSUFFICIENT"
+    coverage_recommendation = "Additional sequencing is strongly recommended."
 
 # Write detailed report
 with open("${prefix}_sequencing_coverage.txt", 'w') as f:
@@ -109,24 +129,11 @@ with open("${prefix}_sequencing_coverage.txt", 'w') as f:
     f.write("FILTERING SUMMARY:\\n")
     f.write(f"  Reads removed: {reads_removed:,} ({reads_removed/total_reads_before*100:.1f}%)\\n")
     f.write(f"  Bases removed: {bases_removed:,} ({filtering_efficiency:.1f}%)\\n")
-    f.write(f"  Data retention: {total_bases_after/total_bases_before*100:.1f}%\\n\\n")
+    f.write(f"  Data retention: {data_retention:.1f}%\\n\\n")
     
     f.write("COVERAGE ASSESSMENT:\\n")
-    if coverage_after >= 50:
-        f.write(f"  Status: EXCELLENT coverage ({coverage_after:.1f}x)\\n")
-        f.write("  Suitable for: High-quality genome assembly, variant calling\\n")
-    elif coverage_after >= 30:
-        f.write(f"  Status: GOOD coverage ({coverage_after:.1f}x)\\n")
-        f.write("  Suitable for: Genome assembly, most analyses\\n")
-    elif coverage_after >= 20:
-        f.write(f"  Status: ADEQUATE coverage ({coverage_after:.1f}x)\\n")
-        f.write("  Suitable for: Basic genome assembly\\n")
-    elif coverage_after >= 10:
-        f.write(f"  Status: LOW coverage ({coverage_after:.1f}x)\\n")
-        f.write("  Suitable for: Draft assembly, may need more sequencing\\n")
-    else:
-        f.write(f"  Status: INSUFFICIENT coverage ({coverage_after:.1f}x)\\n")
-        f.write("  Recommendation: Additional sequencing strongly recommended\\n")
+    f.write(f"  Status: {coverage_status} coverage ({coverage_after:.1f}x)\\n")
+    f.write(f"  Recommendation: {coverage_recommendation}\\n")
 
 # Create JSON summary for downstream processes
 summary_data = {
@@ -143,11 +150,57 @@ summary_data = {
     "theoretical_coverage": coverage_after,
     "coverage_before_filtering": coverage_before,
     "filtering_efficiency": filtering_efficiency,
-    "data_retention_percent": total_bases_after/total_bases_before*100 if total_bases_before > 0 else 0
+    "data_retention_percent": data_retention,
+    "coverage_status": coverage_status,
+    "coverage_recommendation": coverage_recommendation
 }
 
 with open("${prefix}_coverage_summary.json", 'w') as f:
     json.dump(summary_data, f, indent=2)
+
+coverage_rows = [
+    ("Sample ID", "${meta.id}"),
+    ("Estimated genome size", f"{estimated_genome_size:,} bp" if estimated_genome_size else "NA"),
+    ("Genome size range", f"{genome_size_min:,} - {genome_size_max:,} bp" if genome_size_min and genome_size_max else "NA"),
+    ("Heterozygosity", f"{heterozygosity_min:.4f}% - {heterozygosity_max:.4f}%"),
+    ("Model fit", f"{model_fit_min:.4f}% - {model_fit_max:.4f}%" if model_fit_min or model_fit_max else "NA"),
+    ("Coverage before filtering", f"{coverage_before:.1f}x"),
+    ("Coverage after filtering", f"{coverage_after:.1f}x"),
+    ("Reads after filtering", f"{total_reads_after:,}"),
+    ("Bases after filtering", f"{total_bases_after:,} bp"),
+    ("Filtering efficiency", f"{filtering_efficiency:.1f}%"),
+    ("Data retention", f"{data_retention:.1f}%"),
+    ("Coverage assessment", f"{coverage_status} ({coverage_after:.1f}x)"),
+    ("Recommendation", coverage_recommendation),
+]
+
+coverage_html = ["<table class=\\"table table-condensed\\">", "<tbody>"]
+for label, value in coverage_rows:
+    coverage_html.append(
+        f"<tr><th>{html.escape(str(label))}</th><td>{html.escape(str(value))}</td></tr>"
+    )
+coverage_html.extend(["</tbody>", "</table>"])
+
+mqc_lines = [
+    "id: 'nf-core-oceangenomesdraftgenomes-coverage-summary'",
+    "description: 'Theoretical sequencing coverage derived from FastP and GenomeScope2.'",
+    "section_name: 'Coverage Summary'",
+    "plot_type: 'html'",
+    "data: |",
+]
+mqc_lines.extend([f"    {line}" for line in coverage_html])
+
+with open("${prefix}_coverage_summary_mqc.yaml", 'w') as f:
+    f.write("\\n".join(mqc_lines) + "\\n")
+
+tool_params_html = (
+    "<tr><td>Calculate Sequencing Coverage</td>"
+    "<td><samp>inline Python coverage summary using FastP JSON and GenomeScope2 summary inputs</samp></td>"
+    "<td>Computes theoretical pre/post-filtering coverage and writes ${prefix}_coverage_summary.json.</td></tr>"
+)
+
+with open("20_calculate_sequencing_coverage.tool_params_mqcrow.html", "w") as f:
+    f.write(tool_params_html + "\\n")
 
 python_ver = platform.python_version()
 

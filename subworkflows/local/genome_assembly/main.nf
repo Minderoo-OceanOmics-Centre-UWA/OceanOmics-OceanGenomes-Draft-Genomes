@@ -31,6 +31,7 @@ workflow GENOME_ASSEMBLY {
 
     ch_versions = Channel.empty()
     ch_multiqc_files = Channel.empty()
+    ch_sample_multiqc_inputs = Channel.empty()
 
 
     //
@@ -81,6 +82,8 @@ workflow GENOME_ASSEMBLY {
     CALCULATE_SEQUENCING_COVERAGE(
         ch_coverage_calc
     )
+    ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(CALCULATE_SEQUENCING_COVERAGE.out.multiqc)
+    ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(CALCULATE_SEQUENCING_COVERAGE.out.tool_params)
     
     // Collect all JSON outputs from coverage calculation to compile into a single CSV
     collected_jsons = CALCULATE_SEQUENCING_COVERAGE.out.coverage_json.collect()
@@ -90,6 +93,8 @@ workflow GENOME_ASSEMBLY {
     //
 
     COMPILE_JSON_TO_CSV(collected_jsons)
+    ch_multiqc_files = ch_multiqc_files.mix(COMPILE_JSON_TO_CSV.out.multiqc)
+    ch_multiqc_files = ch_multiqc_files.mix(COMPILE_JSON_TO_CSV.out.tool_params)
 
     //
     // MODULE: Run Megahit
@@ -106,6 +111,17 @@ workflow GENOME_ASSEMBLY {
 
     // ch_multiqc_files = ch_multiqc_files.mix(BASESPACE.out.json.collect{it[1]})
     // ch_multiqc_files = ch_multiqc_files.mix(BBMAP_REPAIR.out.log.collect{it})
+    ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(MERYL_COUNT.out.tool_params)
+    ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(MERYL_UNIONSUM.out.tool_params)
+    ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(MERYL_HISTOGRAM.out.tool_params)
+    ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(GENOMESCOPE2.out.tool_params)
+    ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(MEGAHIT.out.tool_params)
+    ch_multiqc_files = ch_multiqc_files.mix(MERYL_COUNT.out.tool_params.collect { it[1] })
+    ch_multiqc_files = ch_multiqc_files.mix(MERYL_UNIONSUM.out.tool_params.collect { it[1] })
+    ch_multiqc_files = ch_multiqc_files.mix(MERYL_HISTOGRAM.out.tool_params.collect { it[1] })
+    ch_multiqc_files = ch_multiqc_files.mix(GENOMESCOPE2.out.tool_params.collect { it[1] })
+    ch_multiqc_files = ch_multiqc_files.mix(CALCULATE_SEQUENCING_COVERAGE.out.tool_params.collect { it[1] })
+    ch_multiqc_files = ch_multiqc_files.mix(MEGAHIT.out.tool_params.collect { it[1] })
     ch_versions = ch_versions.mix(MERYL_COUNT.out.versions.first())
     ch_versions = ch_versions.mix(MERYL_UNIONSUM.out.versions.first())
     ch_versions = ch_versions.mix(MERYL_HISTOGRAM.out.versions.first())
@@ -123,6 +139,7 @@ workflow GENOME_ASSEMBLY {
     meryl_db = MERYL_UNIONSUM.out.meryl_db  // need to check COUNT output to make sure im passing the right one
     genomescope_summary = GENOMESCOPE2.out.summary // pass into genome QC for size of genome (unique length)
     multiqc_files = ch_multiqc_files             // channel: [ path(multiqc_files) ]
+    multiqc_inputs = ch_sample_multiqc_inputs    // channel: [ tuple(meta), path(multiqc_file) ]
     versions = ch_versions              // channel: [ path(versions.yml) ]
 
 

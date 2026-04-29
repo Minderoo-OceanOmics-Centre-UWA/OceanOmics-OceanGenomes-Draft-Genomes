@@ -33,12 +33,17 @@ workflow OCEANGENOMES_DRAFTGENOMES {
 
     take:
         samplesheet
+        upstream_multiqc_files
+        upstream_multiqc_inputs
+        upstream_versions
         sql_config // params.sql_config
         
     main:
     
     ch_multiqc_files = Channel.empty()
     ch_sample_multiqc_inputs = Channel.empty()
+    ch_multiqc_files = ch_multiqc_files.mix(upstream_multiqc_files)
+    ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(upstream_multiqc_inputs)
     ch_meta_by_prefix = samplesheet
         .map { meta, reads -> tuple(meta.prefix ?: meta.id, meta) }
         .distinct()
@@ -332,6 +337,8 @@ workflow OCEANGENOMES_DRAFTGENOMES {
     // if (!params.skip_upload_results) {ch_multiqc_files = ch_multiqc_files.mix(UPLOAD_RESULTS.out.multiqc_files)}
 
     if (!params.skip_fastp_fastqc) {ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(FASTP_FASTQC.out.multiqc_inputs)}
+    if (!params.skip_genome_assembly) {ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(GENOME_ASSEMBLY.out.multiqc_inputs)}
+    if (!params.skip_genome_decontamination) {ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(GENOME_DECONTAMINATION.out.multiqc_inputs)}
     if (!params.skip_genome_qc) {ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(GENOME_QC.out.multiqc_inputs)}
 
     // 
@@ -339,6 +346,7 @@ workflow OCEANGENOMES_DRAFTGENOMES {
     //
 
     ch_versions = Channel.empty()
+    ch_versions = ch_versions.mix(upstream_versions)
     if (!params.skip_fastp_fastqc) {ch_versions = ch_versions.mix(FASTP_FASTQC.out.versions)}
     if (!params.skip_genome_assembly) {ch_versions = ch_versions.mix(GENOME_ASSEMBLY.out.versions)}
     if (!params.skip_genome_decontamination) {ch_versions = ch_versions.mix(GENOME_DECONTAMINATION.out.versions)}

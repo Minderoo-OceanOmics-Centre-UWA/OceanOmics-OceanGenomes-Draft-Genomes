@@ -12,6 +12,7 @@ process BBMAP_REPAIR {
 
     output:
     tuple val(ogid), path("*.{R1,R2}.fq.gz")         , emit: repaired
+    tuple val(ogid), path("05_bbmap_repair.tool_params_mqcrow.html"), emit: tool_params
     path  "versions.yml"                                 , emit: versions
     path  "*paicheck.log"                                        , emit: log
 
@@ -23,6 +24,8 @@ process BBMAP_REPAIR {
     prefix = task.ext.prefix ?: "${ogid}.ilmn.${params.run}"
     in_reads  = ( interleave )  ?: "in=cat/${prefix}.cat.R1.fq.gz in2=cat/${prefix}.cat.R2.fq.gz"
     out_reads = ( interleave )  ?: "out=${prefix}.R1.fq.gz out2=${prefix}.R2.fq.gz"
+    def effective_args = ["repair.sh", "-Xmx${task.memory.toGiga()}g", in_reads, out_reads, "threads=${task.cpus}", args].findAll { it?.trim() }.join(' ')
+    def note = args ? "Concatenates per-sample lane FASTQs, repairs read pairing, and appends ext.args <samp>${args}</samp>." : 'Concatenates per-sample lane FASTQs, repairs read pairing, and writes the FASTQs consumed by FASTP.'
       
  
     """
@@ -37,8 +40,12 @@ process BBMAP_REPAIR {
         $out_reads \\
         threads=${task.cpus} \\
         ${args} 
-    
+
     cp .command.log ${prefix}.paicheck.log
+
+    cat <<-END_TOOL_PARAMS > 05_bbmap_repair.tool_params_mqcrow.html
+    <tr><td>BBMap Repair</td><td><samp>${effective_args}</samp></td><td>${note}</td></tr>
+    END_TOOL_PARAMS
         
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
@@ -47,8 +54,19 @@ process BBMAP_REPAIR {
     """
 
     stub:
-    prefix = task.ext.prefix ?: "${meta.id}"
+    def args = task.ext.args ?: ''
+    prefix = task.ext.prefix ?: "${ogid}.ilmn.${params.run}"
+    in_reads  = ( interleave )  ?: "in=cat/${prefix}.cat.R1.fq.gz in2=cat/${prefix}.cat.R2.fq.gz"
+    out_reads = ( interleave )  ?: "out=${prefix}.R1.fq.gz out2=${prefix}.R2.fq.gz"
+    def effective_args = ["repair.sh", "-Xmx${task.memory.toGiga()}g", in_reads, out_reads, "threads=${task.cpus}", args].findAll { it?.trim() }.join(' ')
+    def note = args ? "Concatenates per-sample lane FASTQs, repairs read pairing, and appends ext.args <samp>${args}</samp>." : 'Concatenates per-sample lane FASTQs, repairs read pairing, and writes the FASTQs consumed by FASTP.'
     """
+    echo '' | gzip > ${prefix}.R1.fq.gz
+    echo '' | gzip > ${prefix}.R2.fq.gz
+    touch ${prefix}.paicheck.log
+    cat <<-END_TOOL_PARAMS > 05_bbmap_repair.tool_params_mqcrow.html
+    <tr><td>BBMap Repair</td><td><samp>${effective_args}</samp></td><td>${note}</td></tr>
+    END_TOOL_PARAMS
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
         bbmap: \$(bbversion.sh | grep -v "Duplicate cpuset")

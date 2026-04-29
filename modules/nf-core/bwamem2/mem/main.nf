@@ -17,6 +17,7 @@ process BWAMEM2_MEM {
     tuple val(meta), path("*.cram") , emit: cram, optional:true
     tuple val(meta), path("*.crai") , emit: crai, optional:true
     tuple val(meta), path("*.csi")  , emit: csi , optional:true
+    tuple val(meta), path("50_bwamem2_mem.tool_params_mqcrow.html"), emit: tool_params
     path "${meta.id}-sn_results.tsv"  , emit: results
     path  "versions.yml"            , emit: versions
 
@@ -33,6 +34,10 @@ process BWAMEM2_MEM {
     def extension = extension_matcher.getCount() > 0 ? extension_matcher[0][2].toLowerCase() : "bam"
     def reference = fasta && extension=="cram"  ? "--reference ${fasta}" : ""
     if (!fasta && extension=="cram") error "Fasta reference is required for CRAM output"
+    def mem_args = [args, "-t ${task.cpus}"].findAll { it?.trim() }.join(' ')
+    def sort_args = ["-@ ${task.cpus}", reference].findAll { it?.trim() }.join(' ')
+    def effective_args = "bwa-mem2 mem ${mem_args} | samtools view -b | samtools sort ${sort_args}".trim()
+    def note = args2 ? "Produces sorted BAM and samtools stats. Configured ext.args2 <samp>${args2}</samp> is defined but not interpolated by this module." : 'Produces sorted BAM and samtools stats.'
 
     """
     INDEX=`find -L ./ -name "*.amb" | sed 's/\\.amb\$//'`
@@ -49,6 +54,9 @@ process BWAMEM2_MEM {
     samtools index ${meta.id}.sorted.bam
 
     samtools stats ${meta.id}.sorted.bam | grep "^SN" | cut -f 2- > ${meta.id}-sn_results.tsv
+    cat <<-END_TOOL_PARAMS > 50_bwamem2_mem.tool_params_mqcrow.html
+    <tr><td>BWA-MEM2 Mem</td><td><samp>${effective_args}</samp></td><td>${note}</td></tr>
+    END_TOOL_PARAMS
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
         bwamem2: \$(echo \$(bwa-mem2 version 2>&1) | sed 's/.* //')
@@ -58,12 +66,18 @@ process BWAMEM2_MEM {
 
     stub:
 
+    def args = task.ext.args ?: ''
     def args2 = task.ext.args2 ?: ''
     def prefix = task.ext.prefix ?: "${meta.id}"
     def extension_pattern = /(--output-fmt|-O)+\s+(\S+)/
     def extension_matcher =  (args2 =~ extension_pattern)
     def extension = extension_matcher.getCount() > 0 ? extension_matcher[0][2].toLowerCase() : "bam"
     if (!fasta && extension=="cram") error "Fasta reference is required for CRAM output"
+    def reference = fasta && extension=="cram" ? "--reference ${fasta}" : ""
+    def mem_args = [args, "-t ${task.cpus}"].findAll { it?.trim() }.join(' ')
+    def sort_args = ["-@ ${task.cpus}", reference].findAll { it?.trim() }.join(' ')
+    def effective_args = "bwa-mem2 mem ${mem_args} | samtools view -b | samtools sort ${sort_args}".trim()
+    def note = args2 ? "Produces sorted BAM and samtools stats. Configured ext.args2 <samp>${args2}</samp> is defined but not interpolated by this module." : 'Produces sorted BAM and samtools stats.'
 
     def create_index = ""
     if (extension == "cram") {
@@ -75,6 +89,9 @@ process BWAMEM2_MEM {
     """
     touch ${prefix}.${extension}
     ${create_index}
+    cat <<-END_TOOL_PARAMS > 50_bwamem2_mem.tool_params_mqcrow.html
+    <tr><td>BWA-MEM2 Mem</td><td><samp>${effective_args}</samp></td><td>${note}</td></tr>
+    END_TOOL_PARAMS
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

@@ -17,6 +17,7 @@ process TIARA_TIARA {
     tuple val(meta), path("log_*.{txt,txt.gz}") , emit: log
     tuple val(meta), path("*.tiara_filter_summary.txt") , emit: summary
     // tuple val(meta), path("*.{fasta,fasta.gz}") , emit: fasta, optional: true
+    tuple val(meta), path("28_tiara.tool_params_mqcrow.html") , emit: tool_params
     path "versions.yml"                         , emit: versions
 
 
@@ -30,6 +31,8 @@ process TIARA_TIARA {
     tiara_report="${prefix}.tiara.txt"
     summary="${prefix}.tiara_filter_summary.txt"
     removal="${prefix}.tiara.contig_removal.txt"
+    def effective_args = ["tiara -i ${fasta}", "-o ${tiara_report}", "--threads ${task.cpus}", args].findAll { it?.trim() }.join(' ')
+    def note = 'Classifies contigs and builds the mitochondrial, plastid, and prokaryotic removal list for the final cleanup pass.'
 
     """
     tiara -i ${fasta} \
@@ -58,6 +61,9 @@ process TIARA_TIARA {
     grep -w mitochondrion "$tiara_report" | awk '{print \$1}' >> "$removal" || true
     grep -w plastid      "$tiara_report" | awk '{print \$1}' >> "$removal" || true
     grep -w prokarya     "$tiara_report" | awk '{print \$1}' >> "$removal" || true
+    cat <<-END_TOOL_PARAMS > 28_tiara.tool_params_mqcrow.html
+    <tr><td>Tiara</td><td><samp>${effective_args}</samp></td><td>${note}</td></tr>
+    END_TOOL_PARAMS
 
 
     cat <<-END_VERSIONS > versions.yml
@@ -69,10 +75,20 @@ process TIARA_TIARA {
     stub:
     prefix = task.ext.prefix ?: "${meta.id}"
     def VERSION = '1.0.3' // WARN: Version information not provided by tool on CLI. Please update this string when bumping container versions.
+    def args = task.ext.args ?: ''
+    tiara_report="${prefix}.tiara.txt"
+    summary="${prefix}.tiara_filter_summary.txt"
+    removal="${prefix}.tiara.contig_removal.txt"
+    def effective_args = ["tiara -i ${fasta}", "-o ${tiara_report}", "--threads ${task.cpus}", args].findAll { it?.trim() }.join(' ')
+    def note = 'Classifies contigs and builds the mitochondrial, plastid, and prokaryotic removal list for the final cleanup pass.'
     """
-    touch ${prefix}.out.txt
+    touch ${tiara_report}
+    touch ${removal}
+    touch ${summary}
     touch log_${prefix}.out.txt
-    touch bacteria_${prefix}.fasta
+    cat <<-END_TOOL_PARAMS > 28_tiara.tool_params_mqcrow.html
+    <tr><td>Tiara</td><td><samp>${effective_args}</samp></td><td>${note}</td></tr>
+    END_TOOL_PARAMS
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

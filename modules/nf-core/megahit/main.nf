@@ -16,6 +16,7 @@ process MEGAHIT {
     // tuple val(meta), path("intermediate_contigs/k*.local.fa")        , emit: local_contigs
     // tuple val(meta), path("intermediate_contigs/k*.final.contigs.fa"), emit: kfinal_contigs
     // tuple val(meta), path('*.log')                                      , emit: log
+    tuple val(meta), path("22_megahit.tool_params_mqcrow.html")        , emit: tool_params
     path "versions.yml"                                                 , emit: versions
 
     when:
@@ -29,6 +30,8 @@ process MEGAHIT {
     def reads_command = meta.single_end || !reads[1] ? "-r ${reads[0].join(',')}" : "-1 ${reads[0].join(',')} -2 ${reads[1].join(',')}"
     def checkpoint_base = "${params.outdir}/megahit_checkpoints"
     def output_dir = "${checkpoint_base}/${prefix}_megahit_out"
+    def effective_args = [args, "-m ${memory}", "-t ${task.cpus}", reads_command, "--out-prefix ${prefix}"].findAll { it?.trim() }.join(' ')
+    def note = "Assembles the trimmed reads to ${prefix}.v129mh.fasta and resumes from ${output_dir} when checkpoints are present."
     """
     # Always use the same output directory for this sample
     # This way MEGAHIT can resume if it exists
@@ -54,6 +57,10 @@ process MEGAHIT {
 
     mv ${output_dir}/${prefix}.contigs.fa ${prefix}.v129mh.fasta
 
+    cat <<-END_TOOL_PARAMS > 22_megahit.tool_params_mqcrow.html
+    <tr><td>MEGAHIT</td><td><samp>${effective_args}</samp></td><td>${note}</td></tr>
+    END_TOOL_PARAMS
+
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
         megahit: \$(echo \$(megahit -v 2>&1) | sed 's/MEGAHIT v//')
@@ -64,15 +71,16 @@ process MEGAHIT {
     def args = task.ext.args ?: ''
     def args2 = task.ext.args2 ?: ''
     def prefix = task.ext.prefix ?: "${meta.id}"
-    def reads_command = meta.single_end || !reads2 ? "-r ${reads1}" : "-1 ${reads1.join(',')} -2 ${reads2.join(',')}"
+    def reads_command = meta.single_end || !reads[1] ? "-r ${reads[0].join(',')}" : "-1 ${reads[0].join(',')} -2 ${reads[1].join(',')}"
+    def memory = task.memory.toBytes()
+    def output_dir = "${params.outdir}/megahit_checkpoints/${prefix}_megahit_out"
+    def effective_args = [args, "-m ${memory}", "-t ${task.cpus}", reads_command, "--out-prefix ${prefix}"].findAll { it?.trim() }.join(' ')
+    def note = "Assembles the trimmed reads to ${prefix}.v129mh.fasta and resumes from ${output_dir} when checkpoints are present."
     """
-    mkdir -p intermediate_contigs
-    echo "" | gzip > ${prefix}.contigs.fa.gz
-    echo "" | gzip > intermediate_contigs/k21.contigs.fa.gz
-    echo "" | gzip > intermediate_contigs/k21.addi.fa.gz
-    echo "" | gzip > intermediate_contigs/k21.local.fa.gz
-    echo "" | gzip > intermediate_contigs/k21.final.contigs.fa.gz
-    touch ${prefix}.log
+    touch ${prefix}.v129mh.fasta
+    cat <<-END_TOOL_PARAMS > 22_megahit.tool_params_mqcrow.html
+    <tr><td>MEGAHIT</td><td><samp>${effective_args}</samp></td><td>${note}</td></tr>
+    END_TOOL_PARAMS
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

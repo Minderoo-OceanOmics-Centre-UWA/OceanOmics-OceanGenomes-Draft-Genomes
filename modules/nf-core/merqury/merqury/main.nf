@@ -27,6 +27,7 @@ process MERQURY_MERQURY {
     // tuple val(meta), path("*.spectra-cn.hist")   , emit: spectra_cn_hist
     // tuple val(meta), path("*.spectra-asm.hist")  , emit: spectra_asm_hist
     // tuple val(meta), path("*.hist.ploidy")       , emit: read_ploidy
+    tuple val(meta), path("60_merqury.tool_params_mqcrow.html"), emit: tool_params
     path "versions.yml"                          , emit: versions
 
     when:
@@ -36,6 +37,8 @@ process MERQURY_MERQURY {
     // def args = task.ext.args ?: ''
     prefix = task.ext.prefix ?: "${meta.assembly_prefix}.merqury"
     def VERSION = 1.3 // WARN: Version information not provided by tool on CLI. Please update this string when bumping container versions.
+    def effective_args = "OMP_NUM_THREADS=${task.cpus}; merqury.sh ${meryl_db.name} ${assembly.name} ${prefix}"
+    def note = 'Assembly completeness and QV statistics from staged meryl DB and assembly inputs.'
     """
     # Nextflow changes the container --entrypoint to /bin/bash (container default entrypoint: /usr/local/env-execute)
     # Check for container variable initialisation script and source it.
@@ -52,6 +55,10 @@ process MERQURY_MERQURY {
         $assembly \\
         $prefix
 
+    cat <<-END_TOOL_PARAMS > 60_merqury.tool_params_mqcrow.html
+    <tr><td>Merqury</td><td><samp>${effective_args}</samp></td><td>${note}</td></tr>
+    END_TOOL_PARAMS
+
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
@@ -62,6 +69,8 @@ process MERQURY_MERQURY {
     stub:
     prefix = task.ext.prefix ?: "${meta.id}"
     def VERSION = 1.3 // WARN: Version information not provided by tool on CLI. Please update this string when bumping container versions.
+    def effective_args = "OMP_NUM_THREADS=${task.cpus}; merqury.sh ${meryl_db.name} ${assembly.name} ${prefix}"
+    def note = 'Assembly completeness and QV statistics from staged meryl DB and assembly inputs.'
     """
     touch ${prefix}_only.bed
     touch ${prefix}_only.wig
@@ -78,6 +87,9 @@ process MERQURY_MERQURY {
     touch ${prefix}.qv
     touch ${prefix}.${prefix}.qv
     touch ${prefix}.hist.ploidy
+    cat <<-END_TOOL_PARAMS > 60_merqury.tool_params_mqcrow.html
+    <tr><td>Merqury</td><td><samp>${effective_args}</samp></td><td>${note}</td></tr>
+    END_TOOL_PARAMS
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

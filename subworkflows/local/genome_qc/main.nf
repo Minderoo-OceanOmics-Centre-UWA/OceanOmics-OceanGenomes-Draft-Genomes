@@ -88,6 +88,7 @@ workflow GENOME_QC {
     ch_versions = Channel.empty()
     ch_multiqc_files = Channel.empty()
     ch_multiqc_inputs = Channel.empty()
+    ch_sample_multiqc_inputs = Channel.empty()
     ch_merqury_results = Channel.empty()
     ch_gfastats_results = Channel.empty()
 
@@ -192,7 +193,18 @@ workflow GENOME_QC {
     // Collect files
     //
 
+    ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(ch_multiqc_inputs)
+    ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(BUSCO_BUSCO.out.tool_params)
+    ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(BWAMEM2_INDEX.out.tool_params)
+    ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(BWAMEM2_MEM.out.tool_params)
+    ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(MERQURY_MERQURY.out.tool_params)
+    ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(GFASTATS.out.tool_params)
     ch_multiqc_files = ch_multiqc_files.mix(ch_multiqc_inputs.collect { it[1] })
+    ch_multiqc_files = ch_multiqc_files.mix(BUSCO_BUSCO.out.tool_params.collect { it[1] })
+    ch_multiqc_files = ch_multiqc_files.mix(BWAMEM2_INDEX.out.tool_params.collect { it[1] })
+    ch_multiqc_files = ch_multiqc_files.mix(BWAMEM2_MEM.out.tool_params.collect { it[1] })
+    ch_multiqc_files = ch_multiqc_files.mix(MERQURY_MERQURY.out.tool_params.collect { it[1] })
+    ch_multiqc_files = ch_multiqc_files.mix(GFASTATS.out.tool_params.collect { it[1] })
     ch_versions = ch_versions.mix(BUSCO_BUSCO.out.versions.first())
     ch_versions = ch_versions.mix(EXTRACT_BUSCO_SEQUENCES.out.versions.first())
     ch_versions = ch_versions.mix(BWAMEM2_INDEX.out.versions.first())
@@ -206,6 +218,6 @@ workflow GENOME_QC {
     merqury_results = ch_merqury_results // channel: tuple val(meta), path("*.completeness.stats"), path("${prefix}.qv")
     gfastats_results = ch_gfastats_results // channel: tuple val(meta), path("*.assembly_summary")
     multiqc_files = ch_multiqc_files             // channel: [ path(multiqc_files) ]
-    multiqc_inputs = ch_multiqc_inputs           // channel: [ tuple(meta), path(multiqc_file) ]
+    multiqc_inputs = ch_sample_multiqc_inputs    // channel: [ tuple(meta), path(multiqc_file) ]
     versions = ch_versions              // channel: [ path(versions.yml) ]
 }

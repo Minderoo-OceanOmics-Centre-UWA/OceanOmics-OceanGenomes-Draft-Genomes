@@ -9,12 +9,24 @@ sp:
     num_lines: 5
 
 report_section_order:
-  "nf-core-oceangenomes_draftgenomes-methods-description":
+  "nf-core-oceangenomesdraftgenomes-coverage-summary":
+    order: 100000
+  fastp:
+    order: 90000
+  fastqc:
+    order: 80000
+  busco:
+    order: 70000
+  multiqc_software_versions:
     order: -1000
-  software_versions:
-    order: -1001
-  "nf-core-oceangenomes_draftgenomes-summary":
-    order: -1002
+  "nf-core-oceangenomesdraftgenomes-methods-description":
+    order: -2000
+  "nf-core-oceangenomesdraftgenomes-summary":
+    order: -3000
+  "nf-core-oceangenomesdraftgenomes-tool-parameters":
+    order: -100000
+  "nf-core-oceangenomesdraftgenomes-sample-tool-parameters":
+    order: -100000
 
 export_plots: true
 

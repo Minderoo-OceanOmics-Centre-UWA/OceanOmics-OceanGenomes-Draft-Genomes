@@ -30,6 +30,7 @@ workflow GENOME_DECONTAMINATION {
 
     ch_versions = Channel.empty()
     ch_multiqc_files = Channel.empty()
+    ch_sample_multiqc_inputs = Channel.empty()
 
 
     fasta_with_assembly_prefix = genome_assembly
@@ -132,6 +133,20 @@ workflow GENOME_DECONTAMINATION {
 
     // ch_multiqc_files = ch_multiqc_files.mix(BASESPACE.out.json.collect{it[1]})
     // ch_multiqc_files = ch_multiqc_files.mix(BBMAP_REPAIR.out.log.collect{it})
+    ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(FCSGX_RUNGX.out.tool_params)
+    ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(FCSGX_CLEANGENOME.out.tool_params)
+    ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(BBMAP_FILTERBYNAME.out.tool_params)
+    ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(FCS_FCSADAPTOR.out.tool_params)
+    ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(FSCSGX_CLEANGENOME_ADAPTOR.out.tool_params)
+    ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(TIARA_TIARA.out.tool_params)
+    ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(BBMAP_FILTERBYNAME_TIARA.out.tool_params)
+    ch_multiqc_files = ch_multiqc_files.mix(FCSGX_RUNGX.out.tool_params.collect { it[1] })
+    ch_multiqc_files = ch_multiqc_files.mix(FCSGX_CLEANGENOME.out.tool_params.collect { it[1] })
+    ch_multiqc_files = ch_multiqc_files.mix(BBMAP_FILTERBYNAME.out.tool_params.collect { it[1] })
+    ch_multiqc_files = ch_multiqc_files.mix(FCS_FCSADAPTOR.out.tool_params.collect { it[1] })
+    ch_multiqc_files = ch_multiqc_files.mix(FSCSGX_CLEANGENOME_ADAPTOR.out.tool_params.collect { it[1] })
+    ch_multiqc_files = ch_multiqc_files.mix(TIARA_TIARA.out.tool_params.collect { it[1] })
+    ch_multiqc_files = ch_multiqc_files.mix(BBMAP_FILTERBYNAME_TIARA.out.tool_params.collect { it[1] })
     ch_versions = ch_versions.mix(FCSGX_RUNGX.out.versions.first())
     ch_versions = ch_versions.mix(FCSGX_CLEANGENOME.out.versions.first())
     ch_versions = ch_versions.mix(BBMAP_FILTERBYNAME.out.versions.first())
@@ -150,6 +165,7 @@ workflow GENOME_DECONTAMINATION {
     contigs_under_500bp = BBMAP_FILTERBYNAME.out.contigs_under_500bp // channel: tuple val(meta), path("${meta.prefix}.contig_count_500bp.txt
     tiara_filter_summary = TIARA_TIARA.out.summary // channel: tuple val(meta), path("*.tiara_filter_summary.txt")
     multiqc_files = ch_multiqc_files             // channel: [ path(multiqc_files) ]
+    multiqc_inputs = ch_sample_multiqc_inputs    // channel: [ tuple(meta), path(multiqc_file) ]
     versions = ch_versions              // channel: [ path(versions.yml) ]
 
 

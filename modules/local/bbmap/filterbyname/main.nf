@@ -16,6 +16,7 @@ process BBMAP_FILTERBYNAME {
     tuple val(meta), path ("$filter_report")                         , emit: filter_report
     tuple val(meta), path("$names_to_filter")                        , emit: names_to_filter 
     tuple val(meta), path("${meta.prefix}.contig_count_500bp.txt")   , emit: contigs_under_500bp
+    tuple val(meta), path("25_bbmap_filterbyname.tool_params_mqcrow.html"), emit: tool_params
     path "versions.yml"                             , emit: versions
 
     when:
@@ -37,6 +38,15 @@ process BBMAP_FILTERBYNAME {
     } else {
         avail_mem = task.memory.giga
     }
+    def effective_args = [
+        "filterbyname.sh -Xmx${avail_mem}g",
+        input,
+        "out=${first_filtered_reads}",
+        "names=${names_to_filter} exclude",
+        args
+    ].findAll { it?.trim() }.join(' ')
+    def effective_reformat = "reformat.sh in=${first_filtered_reads} out=${fully_filtered_reads} minlength=500"
+    def note = 'Removes FCS-GX flagged scaffolds, records review and trim counts, and drops contigs shorter than 500 bp.'
 
     """
     # count the number of contigs and the number of base pairs being removed across EXCLUDE and TRIM 
@@ -86,7 +96,7 @@ process BBMAP_FILTERBYNAME {
         $input \\
         out=$first_filtered_reads \\
         names=$names_to_filter exclude \\
-        $args \\
+        $args
      
     # Wait for the first bbmap script to complete before moving on
     wait
@@ -102,6 +112,9 @@ process BBMAP_FILTERBYNAME {
         in="$first_filtered_reads" \\
         out="$fully_filtered_reads" \\
         minlength=500
+    cat <<-END_TOOL_PARAMS > 25_bbmap_filterbyname.tool_params_mqcrow.html
+    <tr><td>BBMap FilterByName</td><td><samp>${effective_args}; ${effective_reformat}</samp></td><td>${note}</td></tr>
+    END_TOOL_PARAMS
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
@@ -110,6 +123,7 @@ process BBMAP_FILTERBYNAME {
     """
 
     stub:
+    def args = task.ext.args ?: ''
     def prefix = task.ext.prefix ?: "${meta.assembly_prefix}"
     input  = "in=${reads}"
     first_filtered_reads = "${prefix}.rf.fa"
@@ -117,12 +131,25 @@ process BBMAP_FILTERBYNAME {
     filter_report = "${meta.prefix}.filter_report.txt"
     names_to_filter = "${meta.prefix}.review_scaffolds_1kb.txt"
     contigs_under_500bp = "${meta.prefix}.contig_count_500bp.txt"
+    def avail_mem = task.memory ? task.memory.giga : 3
+    def effective_args = [
+        "filterbyname.sh -Xmx${avail_mem}g",
+        input,
+        "out=${first_filtered_reads}",
+        "names=${names_to_filter} exclude",
+        args
+    ].findAll { it?.trim() }.join(' ')
+    def effective_reformat = "reformat.sh in=${first_filtered_reads} out=${fully_filtered_reads} minlength=500"
+    def note = 'Removes FCS-GX flagged scaffolds, records review and trim counts, and drops contigs shorter than 500 bp.'
 
     """
     touch $first_filtered_reads
     touch $filter_report
     touch $names_to_filter
     touch $contigs_under_500bp
+    cat <<-END_TOOL_PARAMS > 25_bbmap_filterbyname.tool_params_mqcrow.html
+    <tr><td>BBMap FilterByName</td><td><samp>${effective_args}; ${effective_reformat}</samp></td><td>${note}</td></tr>
+    END_TOOL_PARAMS
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

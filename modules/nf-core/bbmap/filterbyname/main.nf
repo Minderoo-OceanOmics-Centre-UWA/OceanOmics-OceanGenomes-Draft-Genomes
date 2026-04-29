@@ -14,6 +14,7 @@ process BBMAP_FILTERBYNAME {
 
     output:
     tuple val(meta), path("*.${output_format}"), emit: reads
+    tuple val(meta), path("29_bbmap_filterbyname_tiara.tool_params_mqcrow.html"), emit: tool_params
     path "versions.yml"                        , emit: versions
 
     when:
@@ -32,6 +33,14 @@ process BBMAP_FILTERBYNAME {
     } else {
         avail_mem = task.memory.giga
     }
+    def effective_args = [
+        "filterbyname.sh -Xmx${avail_mem}g",
+        input,
+        output,
+        names_command,
+        args
+    ].findAll { it?.trim() }.join(' ')
+    def note = 'Removes the Tiara-flagged organellar and prokaryotic contigs from the adaptor-cleaned assembly.'
 
     """
     filterbyname.sh \\
@@ -39,7 +48,10 @@ process BBMAP_FILTERBYNAME {
         $input \\
         $output \\
         $names_command \\
-        $args \\
+        $args
+    cat <<-END_TOOL_PARAMS > 29_bbmap_filterbyname_tiara.tool_params_mqcrow.html
+    <tr><td>BBMap FilterByName Tiara</td><td><samp>${effective_args}</samp></td><td>${note}</td></tr>
+    END_TOOL_PARAMS
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
@@ -48,14 +60,30 @@ process BBMAP_FILTERBYNAME {
     """
 
     stub:
+    def args = task.ext.args ?: ''
     def prefix = task.ext.prefix ?: "${meta.id}"
     def filtered = (meta.single_end || interleaved_output) ?
         "echo '' | gzip > ${prefix}.${output_format}" :
         "echo '' | gzip >${prefix}_1.${output_format} ; echo '' | gzip >${prefix}_2.${output_format}"
+    input  = "in=${reads}"
+    output = "out=${meta.assembly_prefix}.${output_format}"
+    def names_command = names_to_filter ? "names=${names_to_filter}": ""
+    def avail_mem = task.memory ? task.memory.giga : 3
+    def effective_args = [
+        "filterbyname.sh -Xmx${avail_mem}g",
+        input,
+        output,
+        names_command,
+        args
+    ].findAll { it?.trim() }.join(' ')
+    def note = 'Removes the Tiara-flagged organellar and prokaryotic contigs from the adaptor-cleaned assembly.'
 
     """
     $filtered
     touch ${prefix}.log
+    cat <<-END_TOOL_PARAMS > 29_bbmap_filterbyname_tiara.tool_params_mqcrow.html
+    <tr><td>BBMap FilterByName Tiara</td><td><samp>${effective_args}</samp></td><td>${note}</td></tr>
+    END_TOOL_PARAMS
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

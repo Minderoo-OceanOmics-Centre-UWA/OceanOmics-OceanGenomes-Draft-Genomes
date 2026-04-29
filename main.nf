@@ -58,12 +58,20 @@ workflow NFCORE_OCEANGENOMES_DRAFTGENOMES {
     // WORKFLOW: Run pipeline
     //
 
+    ch_download_multiqc_files = Channel.empty()
+    ch_download_multiqc_inputs = Channel.empty()
+    ch_download_versions = Channel.empty()
+
     if (!params.skip_download_reads) {
         DOWNLOAD_READS(
             run_id, 
-            bs_config
+            bs_config,
+            params.input
         )
         ch_download_reads_results = DOWNLOAD_READS.out.repaired_reads // tuple val(ogid), path("${prefix}.R*.fq.gz") 
+        ch_download_multiqc_files = DOWNLOAD_READS.out.multiqc_files
+        ch_download_multiqc_inputs = DOWNLOAD_READS.out.multiqc_inputs
+        ch_download_versions = DOWNLOAD_READS.out.versions
     } else if (params.precomputed_download_reads_results) {
         // Use precomputed results if analysis is skipped
         ch_download_reads_results = warnIfEmpty(Channel.fromFilePairs(params.precomputed_download_reads_results, checkIfExists: false), params.precomputed_download_reads_results)
@@ -86,6 +94,12 @@ workflow NFCORE_OCEANGENOMES_DRAFTGENOMES {
     )
     // samplesheetHybrid.out.samplesheet_file.view { file_path -> "📄 Samplesheet CSV written to: ${file_path}" }
     ch_samplesheet = PREPARE_SAMPLESHEET.out.samplesheet // tuple(meta, reads) meta: id, run, date, prefix
+    ch_meta_by_id = ch_samplesheet
+        .map { meta, reads -> tuple(meta.id, meta) }
+        .distinct()
+    ch_download_multiqc_inputs_with_meta = ch_download_multiqc_inputs
+        .join(ch_meta_by_id)
+        .map { id, multiqc_file, meta -> tuple(meta, multiqc_file) }
     
 
     //
@@ -94,6 +108,9 @@ workflow NFCORE_OCEANGENOMES_DRAFTGENOMES {
     
     OCEANGENOMES_DRAFTGENOMES (
         ch_samplesheet,
+        ch_download_multiqc_files,
+        ch_download_multiqc_inputs_with_meta,
+        ch_download_versions,
         sql_config
     )
 

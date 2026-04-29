@@ -13,6 +13,7 @@ process FASTQC {
     output:
     tuple val(meta), path("*.html"), emit: html
     tuple val(meta), path("*.zip") , emit: zip
+    tuple val(meta), path("10_fastqc.tool_params_mqcrow.html"), emit: tool_params
     path  "versions.yml"           , emit: versions
 
     when:
@@ -32,6 +33,8 @@ process FASTQC {
      def memory_in_mb = task.memory ? (task.memory.toUnit('MB').toFloat() / task.cpus).toInteger() : null
     // // FastQC memory value allowed range (100 - 10000)
      def fastqc_memory = memory_in_mb > 10000 ? 10000 : (memory_in_mb < 100 ? 100 : memory_in_mb)
+    def effective_args = [args, "--threads ${task.cpus}", "--memory ${fastqc_memory}"].findAll { it?.trim() }.join(' ')
+    def input_count = reads instanceof List ? reads.size() : 1
 
     """
 
@@ -41,6 +44,10 @@ process FASTQC {
         --memory ${fastqc_memory} \\
         ${reads.join(' ')}
 
+    cat <<-END_TOOL_PARAMS > 10_fastqc.tool_params_mqcrow.html
+    <tr><td>FASTQC</td><td><samp>${effective_args}</samp></td><td>${input_count} input FASTQ file(s).</td></tr>
+    END_TOOL_PARAMS
+
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
@@ -49,10 +56,18 @@ process FASTQC {
     """
 
     stub:
+    def args = task.ext.args ?: ''
     def prefix = task.ext.prefix ?: "${meta.id}"
+    def memory_in_mb = task.memory ? (task.memory.toUnit('MB').toFloat() / task.cpus).toInteger() : null
+    def fastqc_memory = memory_in_mb > 10000 ? 10000 : (memory_in_mb < 100 ? 100 : memory_in_mb)
+    def effective_args = [args, "--threads ${task.cpus}", "--memory ${fastqc_memory}"].findAll { it?.trim() }.join(' ')
+    def input_count = reads instanceof List ? reads.size() : 1
     """
     touch ${prefix}.html
     touch ${prefix}.zip
+    cat <<-END_TOOL_PARAMS > 10_fastqc.tool_params_mqcrow.html
+    <tr><td>FASTQC</td><td><samp>${effective_args}</samp></td><td>${input_count} input FASTQ file(s).</td></tr>
+    END_TOOL_PARAMS
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

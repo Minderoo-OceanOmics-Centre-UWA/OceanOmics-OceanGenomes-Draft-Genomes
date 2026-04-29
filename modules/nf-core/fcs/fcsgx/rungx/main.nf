@@ -17,6 +17,7 @@ process FCSGX_RUNGX {
     tuple val(meta), path("*.taxonomy.rpt")     , emit: taxonomy_report
     tuple val(meta), path("*.summary.txt")      , emit: log
     // tuple val(meta), path("*.hits.tsv.gz")      , emit: hits, optional: true
+    tuple val(meta), path("23_fcsgx_rungx.tool_params_mqcrow.html"), emit: tool_params
     path "versions.yml"                         , emit: versions
 
     when:
@@ -27,6 +28,8 @@ process FCSGX_RUNGX {
     def prefix = task.ext.prefix ?: "${meta.assembly_prefix}"
     // def mv_database_to_ram = ramdisk_path ? "rclone copy $gxdb $ramdisk_path" : '' // have just added in custom pawsey code that works
     def database = ramdisk_path ? "$ramdisk_path" : gxdb // Use task.index to make memory location unique
+    def effective_args = ["GX_NUM_CORES=${task.cpus}; run_gx.py", "--fasta ${fasta}", "--gx-db ${database}", "--tax-id ${meta.taxon_id}", "--generate-logfile true", "--out-basename ${prefix}", "--out-dir .", args].findAll { it?.trim() }.join(' ')
+    def note = 'Copies the GX database to the ramdisk when configured, then screens the assembly for contamination.'
     """
     # Copy DB to RAM-disk when supplied. Otherwise, the tool is very slow.
     mkdir $ramdisk_path
@@ -47,6 +50,9 @@ process FCSGX_RUNGX {
         --out-basename ${prefix} \\
         --out-dir . \\
         ${args}
+    cat <<-END_TOOL_PARAMS > 23_fcsgx_rungx.tool_params_mqcrow.html
+    <tr><td>FCSGX Rungx</td><td><samp>${effective_args}</samp></td><td>${note}</td></tr>
+    END_TOOL_PARAMS
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
@@ -57,11 +63,18 @@ process FCSGX_RUNGX {
     stub:
     // def args = task.ext.args ?: ''
     def prefix = task.ext.prefix ?: "${meta.id}"
+    def args = task.ext.args ?: '--debug '
+    def database = ramdisk_path ? "$ramdisk_path" : gxdb
+    def effective_args = ["GX_NUM_CORES=${task.cpus}; run_gx.py", "--fasta ${fasta}", "--gx-db ${database}", "--tax-id ${meta.taxon_id}", "--generate-logfile true", "--out-basename ${prefix}", "--out-dir .", args].findAll { it?.trim() }.join(' ')
+    def note = 'Copies the GX database to the ramdisk when configured, then screens the assembly for contamination.'
     """
     touch ${prefix}.fcs_gx_report.txt
     touch ${prefix}.taxonomy.rpt
     touch ${prefix}.summary.txt
     echo "" | gzip > ${prefix}.hits.tsv.gz
+    cat <<-END_TOOL_PARAMS > 23_fcsgx_rungx.tool_params_mqcrow.html
+    <tr><td>FCSGX Rungx</td><td><samp>${effective_args}</samp></td><td>${note}</td></tr>
+    END_TOOL_PARAMS
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

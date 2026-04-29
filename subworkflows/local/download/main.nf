@@ -19,6 +19,7 @@ workflow DOWNLOAD_READS {
     take:
     run_id // params.run in nextflow.config
     bs_config
+    samplesheet_input
     
     main:
 
@@ -28,6 +29,7 @@ workflow DOWNLOAD_READS {
 
     ch_versions = Channel.empty()
     ch_multiqc_files = Channel.empty()
+    ch_multiqc_inputs = Channel.empty()
     ch_basespace_fastqs = Channel.empty()
 
     //
@@ -65,6 +67,23 @@ workflow DOWNLOAD_READS {
         .filter { it != null }  // Remove nulls from the channel
         .groupTuple()  // <-- Group by ogid key
 
+    if (samplesheet_input) {
+        log.info "Restricting BBMAP_REPAIR to samples listed in --input: ${samplesheet_input}"
+        ch_input_sample_ids = Channel.fromPath(samplesheet_input, checkIfExists: true)
+            .splitCsv(header: true)
+            .map { row ->
+                def sample_id = row.sample as String
+                def matcher = sample_id =~ /^([A-Z]+\d+)/
+                def meta_id = matcher ? matcher[0][1] : sample_id
+                tuple(meta_id, true)
+            }
+            .distinct()
+
+        reads_by_meta_id = reads_by_meta_id
+            .join(ch_input_sample_ids)
+            .map { meta_id, reads, keep -> tuple(meta_id, reads) }
+    }
+
     //
     // MODULE: Repair the sequencing reads
     //
@@ -80,6 +99,8 @@ workflow DOWNLOAD_READS {
 
     // ch_multiqc_files = ch_multiqc_files.mix(BASESPACE.out.json.collect{it[1]})
     // ch_multiqc_files = ch_multiqc_files.mix(BBMAP_REPAIR.out.log.collect{it})
+    ch_multiqc_inputs = ch_multiqc_inputs.mix(BBMAP_REPAIR.out.tool_params)
+    ch_multiqc_files = ch_multiqc_files.mix(BBMAP_REPAIR.out.tool_params.collect { it[1] })
     ch_versions = ch_versions.mix(BBMAP_REPAIR.out.versions.first())
 
 
@@ -90,6 +111,6 @@ workflow DOWNLOAD_READS {
     emit:
     repaired_reads = BBMAP_REPAIR.out.repaired // channel for fastp - tuple val(ogid), path("*.{R1,R2}.fq.gz")
     multiqc_files = ch_multiqc_files             // channel: [ path(multiqc_files) ]
+    multiqc_inputs = ch_multiqc_inputs           // channel: [ tuple(ogid), path(multiqc_file) ]
     versions = ch_versions              // channel: [ path(versions.yml) ]
 }
-

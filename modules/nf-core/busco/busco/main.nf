@@ -26,7 +26,7 @@ process BUSCO_BUSCO {
     // tuple val(meta), path("busco_downloads/lineages/*")                                       , emit: downloaded_lineages , optional: true
     // tuple val(meta), path("*busco*/*/run_*/busco_sequences/single_copy_busco_sequences/*.faa"), emit: single_copy_faa     , optional: true
     // tuple val(meta), path("*busco*/*/run_*/busco_sequences/single_copy_busco_sequences/*.fna"), emit: single_copy_fna     , optional: true
-
+    tuple val(meta), path("30_busco.tool_params_mqcrow.html")                                  , emit: tool_params
     path "versions.yml"                                                                       , emit: versions
 
     when:
@@ -40,6 +40,9 @@ process BUSCO_BUSCO {
     // Determine database prefix for output naming using the first 4 letters of the database name.
     def db_used = busco_db.tokenize('/').last().take(4)
     def prefix = task.ext.prefix ?: "${meta.assembly_prefix}.busco.${db_used}"
+    def effective_args = ["--cpu ${task.cpus}", "--mode ${mode}", "--lineage_dataset ${busco_db}", args].findAll { it?.trim() }.join(' ')
+    def busco_db_name = busco_db.tokenize('/').last()
+    def note = "Output prefix ${prefix}; lineage dataset ${busco_db_name}."
 
 
     """
@@ -108,6 +111,10 @@ process BUSCO_BUSCO {
     rm -rf ${prefix}/*
     rm -rf tmp.*
 
+    cat <<-END_TOOL_PARAMS > 30_busco.tool_params_mqcrow.html
+    <tr><td>BUSCO</td><td><samp>${effective_args}</samp></td><td>${note}</td></tr>
+    END_TOOL_PARAMS
+
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
         busco: \$( busco --version 2>&1 | sed 's/^BUSCO //' )
@@ -115,11 +122,18 @@ process BUSCO_BUSCO {
     """
 
     stub:
+    def args = task.ext.args ?: ''
     def prefix = task.ext.prefix ?: "${meta.assembly_prefix}.busco.${db_used}"
     def fasta_name = files(fasta).first().name - '.gz'
+    def effective_args = ["--cpu ${task.cpus}", "--mode ${mode}", "--lineage_dataset ${busco_db}", args].findAll { it?.trim() }.join(' ')
+    def busco_db_name = busco_db.tokenize('/').last()
+    def note = "Output prefix ${prefix}; lineage dataset ${busco_db_name}."
     """
     touch ${prefix}-busco.batch_summary.txt
     mkdir -p ${prefix}-busco/${fasta_name}/run_${lineage}/busco_sequences
+    cat <<-END_TOOL_PARAMS > 30_busco.tool_params_mqcrow.html
+    <tr><td>BUSCO</td><td><samp>${effective_args}</samp></td><td>${note}</td></tr>
+    END_TOOL_PARAMS
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
