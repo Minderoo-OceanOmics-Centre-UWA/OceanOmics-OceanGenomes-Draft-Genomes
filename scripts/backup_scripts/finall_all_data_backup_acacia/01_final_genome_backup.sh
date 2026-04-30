@@ -30,6 +30,10 @@ for i in "$rundir"/*; do
         --include "*.fna" \
         --checksum -P
 
+    rclone copy "$i/multiqc/" "$S3/$OG/" \
+        --include "*multiqc_report.html" \
+        --checksum -P
+
     if [ ! -d "$i/kmers" ]; then
         echo "No kmers directory found for $OG"
         continue
