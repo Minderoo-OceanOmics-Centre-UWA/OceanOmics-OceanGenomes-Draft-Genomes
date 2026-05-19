@@ -1,8 +1,4 @@
-# nf-core/oceangenomesdraftgenomes: Citations
-
-## [nf-core](https://pubmed.ncbi.nlm.nih.gov/32055031/)
-
-> Ewels PA, Peltzer A, Fillinger S, Patel H, Alneberg J, Wilm A, Garcia MU, Di Tommaso P, Nahnsen S. The nf-core framework for community-curated bioinformatics pipelines. Nat Biotechnol. 2020 Mar;38(3):276-278. doi: 10.1038/s41587-020-0439-x. PubMed PMID: 32055031.
+# OceanOmics-OceanGenomes-Draft-Genomes: Citations
 
 ## [Nextflow](https://pubmed.ncbi.nlm.nih.gov/28398311/)
 
@@ -46,6 +42,10 @@
 
 > Vasimuddin M, Misra S, Li H, Aluru S. Efficient Architecture-Aware Acceleration of BWA-MEM for Multicore Systems. 2019 IEEE International Parallel and Distributed Processing Symposium (IPDPS). doi: 10.1109/IPDPS.2019.00041.
 
+- [SAMtools](https://pubmed.ncbi.nlm.nih.gov/33590861/)
+
+> Danecek P, Bonfield JK, Liddle J, Marshall J, Ohan V, Pollard MO, Whitwham A, Keane T, McCarthy SA, Davies RM, Li H. Twelve years of SAMtools and BCFtools. GigaScience. 2021 Feb 16;10(2):giab008. doi: 10.1093/gigascience/giab008.
+
 - [Merqury](https://pubmed.ncbi.nlm.nih.gov/33097036/)
 
 > Rhie A, Walenz BP, Koren S, Phillippy AM. Merqury: reference-free quality, completeness, and phasing assessment for genome assemblies. Genome Biol. 2020 Nov 4;21(1):245. doi: 10.1186/s13059-020-02134-9.
@@ -57,6 +57,14 @@
 - [MultiQC](https://pubmed.ncbi.nlm.nih.gov/27312411/)
 
 > Ewels P, Magnusson M, Lundin S, Käller M. MultiQC: summarize analysis results for multiple tools and samples in a single report. Bioinformatics. 2016 Oct 1;32(19):3047-8. doi: 10.1093/bioinformatics/btw354. Epub 2016 Jun 16. PubMed PMID: 27312411; PubMed Central PMCID: PMC5039924.
+
+- [BEDTools](https://pubmed.ncbi.nlm.nih.gov/20110278/)
+
+> Quinlan AR, Hall IM. BEDTools: a flexible suite of utilities for comparing genomic features. Bioinformatics. 2010 Mar 15;26(6):841-842. doi: 10.1093/bioinformatics/btq033.
+
+- [Illumina BaseSpace CLI](https://developer.basespace.illumina.com/docs/content/documentation/cli/cli-overview)
+
+> Illumina. BaseSpace Sequence Hub CLI documentation.
 
 ## Software packaging/containerisation tools
 

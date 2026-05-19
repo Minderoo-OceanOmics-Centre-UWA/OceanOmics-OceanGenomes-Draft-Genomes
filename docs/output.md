@@ -1,4 +1,4 @@
-# nf-core/oceangenomesdraftgenomes: Output
+# OceanOmics-OceanGenomes-Draft-Genomes: Output
 
 ## Introduction
 

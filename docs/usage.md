@@ -1,6 +1,4 @@
-# nf-core/oceangenomesdraftgenomes: Usage
-
-## :warning: Please read this documentation on the nf-core website: [https://nf-co.re/oceangenomesdraftgenomes/usage](https://nf-co.re/oceangenomesdraftgenomes/usage)
+# OceanOmics-OceanGenomes-Draft-Genomes: Usage
 
 > _Documentation of pipeline parameters is generated automatically from the pipeline schema and can no longer be found in markdown files._
 
@@ -11,17 +9,16 @@ This pipeline supports two entry points:
 - **Download from Illumina BaseSpace**: provide `--run` and a BaseSpace CLI config (`--bs_config`). The workflow pulls datasets for that run ID, re-pairs lanes, and builds a samplesheet automatically using metadata looked up via `--sql_config`.
 - **Use existing FASTQs**: provide `--input` with a validated samplesheet and set `--skip_download_reads true`. This is useful when FASTQs are already staged or come from outside BaseSpace.
 
-A minimal BaseSpace run on Pawsey looks like:
+For standard OceanGenomes runs on Pawsey, the simplest route is to copy [`nextflow_run_template.sh`](../nextflow_run_template.sh) to a run-specific launcher, update the `RUN` variable in that copied script, and run it from the repository root:
 
 ```bash
-nextflow run main.nf \
-  -profile singularity \
-  -c pawsey_profile.config \
-  --run NEXT_250724_ET \
-  --bs_config ~/.basespace/default.cfg \
-  --sql_config ~/postgresql_details/oceanomics.cfg \
-  --outdir /scratch/pawsey0964/$USER/oceangenomesdraftgenomes
+RUN=NEXT_250724_ET
+cp nextflow_run_template.sh "nextflow_run_${RUN}.sh"
+sed -i "s/^RUN=.*/RUN=${RUN}/" "nextflow_run_${RUN}.sh"
+bash "nextflow_run_${RUN}.sh"
 ```
+
+The template is set up for the OceanGenomes project defaults: it loads Nextflow and Singularity modules, creates `/scratch/pawsey0964/$USER/$RUN`, copies the backup helper scripts into the run directory, stamps the backup config with the selected run ID, changes into the run output directory, and launches the workflow with the project BaseSpace, SQL, BUSCO, contamination-screening, mitogenome, temp-directory, and Pawsey profile settings.
 
 When using pre-existing FASTQs:
 
@@ -67,20 +64,16 @@ An [example samplesheet](../assets/samplesheet.csv) has been provided with the p
 
 ## Running the pipeline
 
-The typical command for running the pipeline from BaseSpace is as follows:
+The recommended command for OceanGenomes BaseSpace runs is:
 
 ```bash
-nextflow run main.nf \
-  -profile singularity \
-  -c pawsey_profile.config \
-  --run NEXT_250724_ET \
-  --bs_config ~/.basespace/default.cfg \
-  --sql_config ~/postgresql_details/oceanomics.cfg \
-  --gxdb "/scratch/references/Foreign_Contamination_Screening" \
-  --busco_acti_db "/scratch/references/busco_db/actinopterygii_odb10" \
-  --busco_vert_db "/scratch/references/busco_db/vertebrata_odb10" \
-  --outdir /scratch/pawsey0964/$USER/oceangenomesdraftgenomes
+RUN=NEXT_250724_ET
+cp nextflow_run_template.sh "nextflow_run_${RUN}.sh"
+sed -i "s/^RUN=.*/RUN=${RUN}/" "nextflow_run_${RUN}.sh"
+bash "nextflow_run_${RUN}.sh"
 ```
+
+Use the plain [`nextflow_run.sh`](../nextflow_run.sh) script as an alternative when you want to launch from the repository directory and keep the Nextflow work directory under `./work/$RUN`. In that mode, update `RUN` and `OUT` in `nextflow_run.sh` before launching.
 
 To reuse existing FASTQs instead of downloading:
 
@@ -109,12 +102,12 @@ If you wish to repeatedly use the same parameters for multiple runs, rather than
 Pipeline settings can be provided in a `yaml` or `json` file via `-params-file <file>`.
 
 > [!WARNING]
-> Do not use `-c <file>` to specify parameters as this will result in errors. Custom config files specified with `-c` must only be used for [tuning process resource specifications](https://nf-co.re/docs/usage/configuration#tuning-workflow-resources), other infrastructural tweaks (such as output directories), or module arguments (args).
+> Do not use `-c <file>` to specify parameters as this will result in errors. Custom config files specified with `-c` must only be used for process resource settings, other infrastructural tweaks, or module arguments (args). Use `-params-file` for pipeline parameters.
 
 The above pipeline run specified with a params file in yaml format:
 
 ```bash
-nextflow run nf-core/oceangenomesdraftgenomes -profile docker -params-file params.yaml
+nextflow run main.nf -profile singularity -params-file params.yaml
 ```
 
 with:
@@ -122,32 +115,32 @@ with:
 ```yaml title="params.yaml"
 input: './samplesheet.csv'
 outdir: './results/'
-genome: 'GRCh37'
+skip_download_reads: true
 <...>
 ```
 
-You can also generate such `YAML`/`JSON` files via [nf-core/launch](https://nf-co.re/launch).
-
 ### Updating the pipeline
 
-When you run the above command, Nextflow automatically pulls the pipeline code from GitHub and stores it as a cached version. When running the pipeline after this, it will always use the cached version if available - even if the pipeline has been updated since. To make sure that you're running the latest version of the pipeline, make sure that you regularly update the cached version of the pipeline:
+This pipeline is intended to be run from a local clone or working copy. To update it, update the repository checkout itself before launching Nextflow:
 
 ```bash
-nextflow pull nf-core/oceangenomesdraftgenomes
+git pull
 ```
 
 ### Reproducibility
 
-It is a good idea to specify the pipeline version when running the pipeline on your data. This ensures that a specific version of the pipeline code and software are used when you run your pipeline. If you keep using the same tag, you'll be running the same version of the pipeline, even if there have been changes to the code since.
+It is a good idea to record the pipeline commit or tag used for each production run. This ensures that a specific version of the pipeline code and software can be recovered later if results need to be reproduced.
 
-First, go to the [nf-core/oceangenomesdraftgenomes releases page](https://github.com/nf-core/oceangenomesdraftgenomes/releases) and find the latest pipeline version - numeric only (eg. `1.3.1`). Then specify this when running the pipeline with `-r` (one hyphen) - eg. `-r 1.3.1`. Of course, you can switch to another version by changing the number after the `-r` flag.
+You can record the current commit before launching a run:
 
-This version number will be logged in reports when you run the pipeline, so that you'll know what you used when you look back in the future. For example, at the bottom of the MultiQC reports.
+```bash
+git rev-parse --short HEAD
+```
 
 To further assist in reproducibility, you can use share and reuse [parameter files](#running-the-pipeline) to repeat pipeline runs with the same settings without having to write out a command with every single parameter.
 
 > [!TIP]
-> If you wish to share such profile (such as upload as supplementary material for academic publications), make sure to NOT include cluster specific paths to files, nor institutional specific profiles.
+> If you wish to share a parameter file, make sure it does not include private credentials, cluster-specific paths, or other local-only settings.
 
 ## Core Nextflow arguments
 
@@ -163,8 +156,6 @@ Several generic profiles are bundled with the pipeline which instruct the pipeli
 > [!IMPORTANT]
 > We highly recommend the use of Docker or Singularity containers for full pipeline reproducibility, however when this is not possible, Conda is also supported.
 
-The pipeline also dynamically loads configurations from [https://github.com/nf-core/configs](https://github.com/nf-core/configs) when it runs, making multiple config profiles for various institutional clusters available at run time. For more information and to check if your system is supported, please see the [nf-core/configs documentation](https://github.com/nf-core/configs#documentation).
-
 Note that multiple profiles can be loaded, for example: `-profile test,docker` - the order of arguments is important!
 They are loaded in sequence, so later profiles can overwrite earlier profiles.
 
@@ -172,7 +163,7 @@ If `-profile` is not specified, the pipeline will run locally and expect all sof
 
 - `test`
   - A profile with a complete configuration for automated testing
-  - Includes links to test data so needs no other parameters
+  - Includes test settings so needs no other parameters
 - `docker`
   - A generic configuration profile to be used with [Docker](https://docker.com/)
 - `singularity`
@@ -198,35 +189,29 @@ You can also supply a run name to resume a specific run: `-resume [run-name]`. U
 
 ### `-c`
 
-Specify the path to a specific config file (this is a core Nextflow command). See the [nf-core website documentation](https://nf-co.re/usage/configuration) for more information.
+Specify the path to a specific config file (this is a core Nextflow command). Use this for infrastructure and executor settings, not pipeline parameters. See the [Nextflow config documentation](https://www.nextflow.io/docs/latest/config.html) for more information.
 
 ## Custom configuration
 
 ### Resource requests
 
-Whilst the default requirements set within the pipeline will hopefully work for most people and with most input data, you may find that you want to customise the compute resources that the pipeline requests. Each step in the pipeline has a default set of requirements for number of CPUs, memory and time. For most of the pipeline steps, if the job exits with any of the error codes specified [here](https://github.com/nf-core/rnaseq/blob/4c27ef5610c87db00c3c5a3eed10b1d161abf575/conf/base.config#L18) it will automatically be resubmitted with higher resources request (2 x original, then 3 x original). If it still fails after the third attempt then the pipeline execution is stopped.
+Whilst the default requirements set within the pipeline will hopefully work for most people and with most input data, you may find that you want to customise the compute resources that the pipeline requests. Each step in the pipeline has a default set of requirements for number of CPUs, memory and time. For many pipeline steps, failed jobs are automatically retried with higher resource requests according to the retry settings in [`conf/base.config`](../conf/base.config). If a step still fails after the configured retries, the pipeline execution is stopped.
 
-To change the resource requests, please see the [max resources](https://nf-co.re/docs/usage/configuration#max-resources) and [tuning workflow resources](https://nf-co.re/docs/usage/configuration#tuning-workflow-resources) section of the nf-core website.
+To change resource requests, provide a custom Nextflow config with `-c` and override the relevant `process` selectors or labels.
 
 ### Custom Containers
 
-In some cases, you may wish to change the container or conda environment used by a pipeline steps for a particular tool. By default, nf-core pipelines use containers and software from the [biocontainers](https://biocontainers.pro/) or [bioconda](https://bioconda.github.io/) projects. However, in some cases the pipeline specified version maybe out of date.
+In some cases, you may wish to change the container or conda environment used by a pipeline step for a particular tool. Many modules use containers and software from the [BioContainers](https://biocontainers.pro/) or [Bioconda](https://bioconda.github.io/) projects. However, in some cases the pipeline-specified version may be out of date.
 
-To use a different container from the default container or conda environment specified in a pipeline, please see the [updating tool versions](https://nf-co.re/docs/usage/configuration#updating-tool-versions) section of the nf-core website.
+To use a different container from the default container or conda environment specified in the pipeline, override the relevant process settings in a custom Nextflow config.
 
 ### Custom Tool Arguments
 
-A pipeline might not always support every possible argument or option of a particular tool used in pipeline. Fortunately, nf-core pipelines provide some freedom to users to insert additional parameters that the pipeline does not include by default.
+A pipeline might not always support every possible argument or option of a particular tool used in the workflow. Where modules expose `ext.args` or similar settings, you can provide additional arguments via a custom Nextflow config.
 
-To learn how to provide additional arguments to a particular tool of the pipeline, please see the [customising tool arguments](https://nf-co.re/docs/usage/configuration#customising-tool-arguments) section of the nf-core website.
-
-### nf-core/configs
-
-In most cases, you will only need to create a custom config as a one-off but if you and others within your organisation are likely to be running nf-core pipelines regularly and need to use the same settings regularly it may be a good idea to request that your custom config file is uploaded to the `nf-core/configs` git repository. Before you do this please can you test that the config file works with your pipeline of choice using the `-c` parameter. You can then create a pull request to the `nf-core/configs` repository with the addition of your config file, associated documentation file (see examples in [`nf-core/configs/docs`](https://github.com/nf-core/configs/tree/master/docs)), and amending [`nfcore_custom.config`](https://github.com/nf-core/configs/blob/master/nfcore_custom.config) to include your custom profile.
+See the local [`conf/modules.config`](../conf/modules.config) file for module-specific argument hooks already used by this pipeline.
 
 See the main [Nextflow documentation](https://www.nextflow.io/docs/latest/config.html) for more information about creating your own configuration files.
-
-If you have any questions or issues please send us a message on [Slack](https://nf-co.re/join/slack) on the [`#configs` channel](https://nfcore.slack.com/channels/configs).
 
 ## Running in the background
 

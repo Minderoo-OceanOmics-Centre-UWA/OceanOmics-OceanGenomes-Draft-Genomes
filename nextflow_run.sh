@@ -1,17 +1,25 @@
 module load nextflow/25.04.6
 module load singularity/4.1.0-nompi
 
+# Alternative repo-local launcher.
+# This runs from the repository and keeps Nextflow work/log files under this directory.
+# For standard OceanGenomes production runs, prefer copying nextflow_run_template.sh
+# to nextflow_run_<RUN>.sh so each run launches from its own output directory.
 RUN=XXXX_0000_XX
+OUT="/scratch/pawsey1348/$USER/_NFCORE/_OUT_DIR"
 
-nextflow run main.nf \
-    -work-dir ./work/$RUN \
+# To reuse an existing samplesheet, uncomment the --input line at the end
+# and set --skip_download_reads true.
+nextflow -log ".nextflow_${RUN}.log" \
+    run main.nf \
+    -work-dir "./work/$RUN" \
     -c pawsey_profile.config \
     -resume \
     -profile singularity \
     -with-report \
     --run "$RUN" \
-    --outdir /scratch/pawsey0964/$USER/_NFCORE/_OUT_DIR \
-    --mitogenome_nfcore_dir /scratch/pawsey0964/$USER/_NFCORE/Oceanomics-OceanGenomes-Mitogenomes \
+    --outdir "$OUT" \
+    --mitogenome_nfcore_dir "/scratch/pawsey1348/$USER/Oceanomics-OceanGenomes-Mitogenomes" \
     --kvalue "21" \
     --genomescope2_l false \
     --bs_config ~/.basespace/default.cfg \
@@ -20,7 +28,7 @@ nextflow run main.nf \
     --ramdisk_path "/tmp/gxdb/" \
     --busco_acti_db "/scratch/references/busco_db/actinopterygii_odb10" \
     --busco_vert_db "/scratch/references/busco_db/vertebrata_odb10" \
-    --tempdir /scratch/pawsey0964/$USER/tmp \
+    --tempdir "/scratch/pawsey1348/$USER/tmp" \
     --refresh-modules \
     --skip_bs_download false \
     --skip_download_reads false \
@@ -29,5 +37,5 @@ nextflow run main.nf \
     --skip_genome_decontamination false \
     --skip_genome_qc false \
     --skip_upload_results false \
-    # --input assets/samplesheet.csv \  # include a samplesheet if you are not downloading sample.
+    # --input assets/samplesheet.csv
     

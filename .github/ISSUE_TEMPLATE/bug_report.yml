@@ -7,8 +7,9 @@ body:
       value: |
         Before you post this issue, please check the documentation:
 
-        - [nf-core website: troubleshooting](https://nf-co.re/usage/troubleshooting)
-        - [nf-core/oceangenomesdraftgenomes pipeline documentation](https://nf-co.re/oceangenomesdraftgenomes/usage)
+        - `README.md`
+        - `docs/usage.md`
+        - `docs/output.md`
   - type: textarea
     id: description
     attributes:
@@ -46,4 +47,4 @@ body:
         * Executor _(eg. slurm, local, awsbatch)_
         * Container engine: _(e.g. Docker, Singularity, Conda, Podman, Shifter, Charliecloud, or Apptainer)_
         * OS _(eg. CentOS Linux, macOS, Linux Mint)_
-        * Version of nf-core/oceangenomesdraftgenomes _(eg. 1.1, 1.5, 1.8.2)_
+        * Pipeline commit or tag _(eg. output from `git rev-parse --short HEAD`)_
