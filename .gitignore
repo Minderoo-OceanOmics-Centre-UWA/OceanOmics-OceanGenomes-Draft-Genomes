@@ -21,3 +21,4 @@ scripts/backup_scripts/raw_data_backup_aws/_draftRAWcheck*
 scripts/backup_scripts/check_files/FileCheck*
 scripts/backup_scripts/check_files/_FileCheck*
 scripts/backup_scripts/configfile.txt
+results-test/

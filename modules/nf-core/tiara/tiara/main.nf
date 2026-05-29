@@ -47,6 +47,15 @@ process TIARA_TIARA {
     count() { grep -w "\$1" "$tiara_report" | wc -l || true; }
     bpsum() { grep -w "\$1" "$tiara_report" | awk -F'len=' '{s += \$2} END {print s+0}' || true; }
 
+    c=\$(count archaea); b=\$(bpsum archaea)
+    printf "Archaea\\t%s\\t%s\\n" "\$c" "\$b" >> "$summary"
+    
+    c=\$(count bacteria); b=\$(bpsum bacteria)
+    printf "Bacteria\\t%s\\t%s\\n" "\$c" "\$b" >> "$summary"
+
+    c=\$(count organelle); b=\$(bpsum organelle)
+    printf "Organelle\\t%s\\t%s\\n" "\$c" "\$b" >> "$summary"
+
     c=\$(count mitochondrion); b=\$(bpsum mitochondrion)
     printf "Mitochondrion\\t%s\\t%s\\n" "\$c" "\$b" >> "$summary"
 
@@ -58,6 +67,9 @@ process TIARA_TIARA {
 
     # contig lists (don’t fail if empty)
     : > "$removal"
+    grep -w archaea "$tiara_report" | awk '{print \$1}' >> "$removal" || true
+    grep -w bacteria "$tiara_report" | awk '{print \$1}' >> "$removal" || true
+    grep -w organelle "$tiara_report" | awk '{print \$1}' >> "$removal" || true
     grep -w mitochondrion "$tiara_report" | awk '{print \$1}' >> "$removal" || true
     grep -w plastid      "$tiara_report" | awk '{print \$1}' >> "$removal" || true
     grep -w prokarya     "$tiara_report" | awk '{print \$1}' >> "$removal" || true

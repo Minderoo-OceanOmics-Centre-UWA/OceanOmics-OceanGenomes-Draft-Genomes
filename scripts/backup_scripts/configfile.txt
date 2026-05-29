@@ -8,8 +8,14 @@ module load python/3.11.6
 RUN=XXXX_0000_XX
 export RUN
 
-# Dynamically extract Pawsey account from current working directory
-export PAWSEY_ACCOUNT=$(pwd | grep -o '/scratch/pawsey[0-9]\+' | cut -d/ -f3)
+# Dynamically extract Pawsey account from this config file location.
+# This is safer than using pwd because the backup scripts source this file.
+CONFIG_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+export PAWSEY_ACCOUNT=$(echo "$CONFIG_DIR" | grep -o '/scratch/pawsey[0-9]\+' | cut -d/ -f3)
+if [[ -z "$PAWSEY_ACCOUNT" ]]; then
+  echo "ERROR: Could not determine PAWSEY_ACCOUNT from config path: $CONFIG_DIR" >&2
+  return 1 2>/dev/null || exit 1
+fi
 
 export WRKDIR=/scratch/$PAWSEY_ACCOUNT/$USER/$RUN
 

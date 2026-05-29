@@ -114,7 +114,7 @@ Assemblies are screened with NCBI FCS-GX for contamination, adapters are removed
 
 </details>
 
-Quality metrics cover gene content (BUSCO), read mapping (BWA-MEM2), k-mer based QV/completeness (Merqury), and assembly structure (Gfastats).
+Quality metrics cover gene content (BUSCO), read mapping (BWA-MEM2), k-mer based QV/completeness (Merqury), and assembly structure (Gfastats). BUSCO lineage selection is based on the samplesheet `class`: `Actinopteri` uses `--busco_acti_db`, `Anthozoa`/`Cnidaria` uses `--busco_metazoa_db`, and other values fall back to `--busco_vert_db`.
 
 ### MultiQC
 

@@ -11,6 +11,7 @@ include { BWAMEM2_INDEX                     } from '../../../modules/nf-core/bwa
 include { BWAMEM2_MEM                       } from '../../../modules/nf-core/bwamem2/mem'
 include { MERQURY_MERQURY                   } from '../../../modules/nf-core/merqury/merqury'
 include { GFASTATS                          } from '../../../modules/nf-core/gfastats'
+include { SEQKIT_STATS                      } from '../../../modules/nf-core/seqkit/stats'
 
 
 //FUNCTION: Join multiple [meta, value] channels on a set of keys, then merge metas.
@@ -91,6 +92,7 @@ workflow GENOME_QC {
     ch_sample_multiqc_inputs = Channel.empty()
     ch_merqury_results = Channel.empty()
     ch_gfastats_results = Channel.empty()
+    ch_seqkit_stats_results = Channel.empty()
 
 
 /*
@@ -104,7 +106,7 @@ workflow GENOME_QC {
         def busco_db
         if ( meta.class == 'Actinopteri' ) {
             busco_db = params.busco_acti_db
-        } else if ( meta.class == 'Cniddaria' ) {
+        } else if ( meta.class in ['Anthozoa', 'Cnidaria'] ) {
             busco_db = params.busco_metazoa_db
         } else {
             busco_db = params.busco_vert_db
@@ -188,7 +190,19 @@ workflow GENOME_QC {
     )
     ch_versions = ch_versions.mix(GFASTATS.out.versions.first())
     ch_gfastats_results = GFASTATS.out.assembly_summary // channel: tuple val(meta), path("*.assembly_summary")
-    
+
+
+    //
+    // MODULE: Run Seqkit stats
+    //
+
+    SEQKIT_STATS (
+        assembly // tuple val(meta), path(assembly)
+    )
+    ch_versions = ch_versions.mix(SEQKIT_STATS.out.versions.first())
+    ch_seqkit_stats_results = SEQKIT_STATS.out.stats // channel: tuple val(meta), path("*.seqkit_stats.tsv")
+
+
     //
     // Collect files
     //
@@ -199,24 +213,28 @@ workflow GENOME_QC {
     ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(BWAMEM2_MEM.out.tool_params)
     ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(MERQURY_MERQURY.out.tool_params)
     ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(GFASTATS.out.tool_params)
+    ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(SEQKIT_STATS.out.tool_params)
     ch_multiqc_files = ch_multiqc_files.mix(ch_multiqc_inputs.collect { it[1] })
     ch_multiqc_files = ch_multiqc_files.mix(BUSCO_BUSCO.out.tool_params.collect { it[1] })
     ch_multiqc_files = ch_multiqc_files.mix(BWAMEM2_INDEX.out.tool_params.collect { it[1] })
     ch_multiqc_files = ch_multiqc_files.mix(BWAMEM2_MEM.out.tool_params.collect { it[1] })
     ch_multiqc_files = ch_multiqc_files.mix(MERQURY_MERQURY.out.tool_params.collect { it[1] })
     ch_multiqc_files = ch_multiqc_files.mix(GFASTATS.out.tool_params.collect { it[1] })
+    ch_multiqc_files = ch_multiqc_files.mix(SEQKIT_STATS.out.tool_params.collect { it[1] })
     ch_versions = ch_versions.mix(BUSCO_BUSCO.out.versions.first())
     ch_versions = ch_versions.mix(EXTRACT_BUSCO_SEQUENCES.out.versions.first())
     ch_versions = ch_versions.mix(BWAMEM2_INDEX.out.versions.first())
     ch_versions = ch_versions.mix(BWAMEM2_MEM.out.versions.first())
     ch_versions = ch_versions.mix(MERQURY_MERQURY.out.versions.first())
     ch_versions = ch_versions.mix(GFASTATS.out.versions.first())
+    ch_versions = ch_versions.mix(SEQKIT_STATS.out.versions.first())
 
 
     emit:
     busco_short_summary = BUSCO_BUSCO.out.short_summaries_json // channel: tuple val(meta), path('*.busco.short_summary.txt')
     merqury_results = ch_merqury_results // channel: tuple val(meta), path("*.completeness.stats"), path("${prefix}.qv")
     gfastats_results = ch_gfastats_results // channel: tuple val(meta), path("*.assembly_summary")
+    seqkit_stats_results = ch_seqkit_stats_results // channel: tuple val(meta), path("*.seqkit_stats.tsv")
     multiqc_files = ch_multiqc_files             // channel: [ path(multiqc_files) ]
     multiqc_inputs = ch_sample_multiqc_inputs    // channel: [ tuple(meta), path(multiqc_file) ]
     versions = ch_versions              // channel: [ path(versions.yml) ]

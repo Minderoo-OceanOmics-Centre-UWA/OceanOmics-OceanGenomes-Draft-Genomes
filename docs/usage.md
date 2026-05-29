@@ -60,6 +60,16 @@ OG846,NOVA_250131_AD,250131,OG846.ilmn.250131,13397,13397,Chondrichthyes,/data/O
 
 The pipeline concatenates multiple rows with the same `sample` before processing.
 
+The `class` value also controls BUSCO lineage selection during genome QC:
+
+| `class` value | BUSCO database parameter |
+| ------------- | ------------------------ |
+| `Actinopteri` | `--busco_acti_db` |
+| `Anthozoa` or `Cnidaria` | `--busco_metazoa_db` |
+| Any other value, including `unknown` | `--busco_vert_db` |
+
+If you manually edit or provide a samplesheet, check that coral/cnidarian samples use `Anthozoa` or `Cnidaria` so they are not assigned the default vertebrate BUSCO database.
+
 An [example samplesheet](../assets/samplesheet.csv) has been provided with the pipeline (fill in FASTQ paths before use).
 
 ## Running the pipeline

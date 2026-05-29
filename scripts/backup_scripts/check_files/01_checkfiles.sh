@@ -64,7 +64,6 @@ for OGdir in $rundir/*; do
         $OGdir/assemblies/genome/tiara/$OG.ilmn.*.tiara_filter_summary.txt
         $OGdir/assemblies/genome/tiara
         $OGdir/assemblies/genome/gfastats/*assembly_summary
-        $OGdir/assemblies/genome/gfastats/*.fa
         $OGdir/assemblies/genome/gfastats
         $OGdir/assemblies/genome
         $OGdir/assemblies

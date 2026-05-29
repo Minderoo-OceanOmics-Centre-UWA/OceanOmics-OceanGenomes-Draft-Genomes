@@ -24,6 +24,15 @@ def get_species_info(db_params, og_id):
     or None if not found.
     """
     query = """
+    WITH sample_q AS (
+        SELECT
+            s.og_id,
+            s.nominal_species_id,
+            trim(s.nominal_species_id) AS nominal_name,
+            split_part(trim(s.nominal_species_id), ' ', 1) AS nominal_genus
+        FROM sample s
+        WHERE s.og_id = %s
+    )
     SELECT
         s.og_id,
         s.nominal_species_id,
@@ -32,61 +41,108 @@ def get_species_info(db_params, og_id):
         m.species_matched,
         m.sim,
         m.match_level
-    FROM sample s
+    FROM sample_q s
     LEFT JOIN LATERAL (
-        SELECT
-            sp.ncbi_taxon_id,
-            sp.class,
-            sp.species AS species_matched,
-            -- priority: 1 = species-level match, 2 = only higher-level match
-            CASE 
-                WHEN sp.species %% s.nominal_species_id THEN 1
-                ELSE 2
-            END AS priority,
-            -- similarity score: max of whichever levels actually match
-            GREATEST(
-                CASE 
-                    WHEN sp.species %% s.nominal_species_id 
-                    THEN similarity(sp.species, s.nominal_species_id) 
-                    ELSE 0 
-                END,
-                CASE 
-                    WHEN sp.genus %% s.nominal_species_id 
-                    THEN similarity(sp.genus, s.nominal_species_id) 
-                    ELSE 0 
-                END,
-                CASE 
-                    WHEN sp.family %% s.nominal_species_id 
-                    THEN similarity(sp.family, s.nominal_species_id) 
-                    ELSE 0 
-                END,
-                CASE 
-                    WHEN sp.ordr %% s.nominal_species_id
-                    THEN similarity(sp.ordr, s.nominal_species_id) 
-                    ELSE 0 
-                END
-            ) AS sim,
-            CASE 
-                WHEN sp.species %% s.nominal_species_id THEN 'species'
-                WHEN sp.genus   %% s.nominal_species_id 
-                  OR sp.family %% s.nominal_species_id 
-                  OR sp.ordr   %% s.nominal_species_id THEN 'higher_taxon'
-                ELSE 'unknown'
-            END AS match_level
-        FROM species sp
-        WHERE (
-            sp.species %% s.nominal_species_id
-            OR sp.genus  %% s.nominal_species_id
-            OR sp.family %% s.nominal_species_id
-            OR sp.ordr   %% s.nominal_species_id
-        )
-          AND sp.ncbi_taxon_id IS NOT NULL
+        SELECT *
+        FROM (
+            SELECT
+                sp.ncbi_taxon_id,
+                sp.class,
+                sp.species AS species_matched,
+                1 AS priority,
+                1.0 AS sim,
+                'species_exact' AS match_level
+            FROM species sp
+            WHERE sp.ncbi_taxon_id IS NOT NULL
+              AND lower(sp.species) = lower(s.nominal_name)
+
+            UNION ALL
+
+            SELECT
+                sp.ncbi_taxon_id,
+                sp.class,
+                sp.species AS species_matched,
+                2 AS priority,
+                1.0 AS sim,
+                'genus_exact' AS match_level
+            FROM species sp
+            WHERE sp.ncbi_taxon_id IS NOT NULL
+              AND lower(sp.genus) = lower(s.nominal_genus)
+
+            UNION ALL
+
+            SELECT
+                sp.ncbi_taxon_id,
+                sp.class,
+                sp.species AS species_matched,
+                3 AS priority,
+                1.0 AS sim,
+                'family_exact' AS match_level
+            FROM species sp
+            WHERE sp.ncbi_taxon_id IS NOT NULL
+              AND lower(sp.family) = lower(s.nominal_name)
+
+            UNION ALL
+
+            SELECT
+                sp.ncbi_taxon_id,
+                sp.class,
+                sp.species AS species_matched,
+                4 AS priority,
+                1.0 AS sim,
+                'order_exact' AS match_level
+            FROM species sp
+            WHERE sp.ncbi_taxon_id IS NOT NULL
+              AND lower(sp.ordr) = lower(s.nominal_name)
+
+            UNION ALL
+
+            SELECT
+                sp.ncbi_taxon_id,
+                sp.class,
+                sp.species AS species_matched,
+                5 AS priority,
+                similarity(sp.species, s.nominal_name) AS sim,
+                'species_fuzzy_same_genus' AS match_level
+            FROM species sp
+            WHERE sp.ncbi_taxon_id IS NOT NULL
+              AND lower(sp.genus) = lower(s.nominal_genus)
+              AND sp.species %% s.nominal_name
+
+            UNION ALL
+
+            SELECT
+                sp.ncbi_taxon_id,
+                sp.class,
+                sp.species AS species_matched,
+                6 AS priority,
+                similarity(sp.family, s.nominal_name) AS sim,
+                'family_fuzzy' AS match_level
+            FROM species sp
+            WHERE sp.ncbi_taxon_id IS NOT NULL
+              AND sp.family %% s.nominal_name
+              AND similarity(sp.family, s.nominal_name) >= 0.65
+
+            UNION ALL
+
+            SELECT
+                sp.ncbi_taxon_id,
+                sp.class,
+                sp.species AS species_matched,
+                7 AS priority,
+                similarity(sp.ordr, s.nominal_name) AS sim,
+                'order_fuzzy' AS match_level
+            FROM species sp
+            WHERE sp.ncbi_taxon_id IS NOT NULL
+              AND sp.ordr %% s.nominal_name
+              AND similarity(sp.ordr, s.nominal_name) >= 0.65
+        ) ranked_matches
         ORDER BY
-            priority,   -- species-level matches first
-            sim DESC    -- then highest similarity
+            priority,
+            sim DESC,
+            ncbi_taxon_id
         LIMIT 1
     ) m ON TRUE
-    WHERE s.og_id = %s
     ORDER BY s.og_id;
     """
     conn = None
@@ -106,6 +162,9 @@ def get_species_info(db_params, og_id):
                     sim,
                     match_level
                 ) = result
+
+                if taxon_id is None or tax_class is None:
+                    print(f"[WARN] No matching species data found for OG ID: {og_id}")
 
                 # Return exactly what the rest of the script expects
                 return (nominal_species_id, taxon_id, tax_class)

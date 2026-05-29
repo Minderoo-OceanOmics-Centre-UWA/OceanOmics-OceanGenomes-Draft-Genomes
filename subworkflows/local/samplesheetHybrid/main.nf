@@ -56,7 +56,7 @@ workflow samplesheetHybrid {
                 date : row.date ?: row.run.tokenize('_')[1],
                 prefix : row.prefix,
                 nom_species_id: row.nom_species_id,
-                taxon_id : row.taxon,
+                taxon_id : row.taxon_id,
                 class : row.class
             ]
 
