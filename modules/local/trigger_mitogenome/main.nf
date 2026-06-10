@@ -43,6 +43,7 @@ nextflow -log \$OUT_DIR/.nextflow_${params.run}.log \\
     --blast_db_dir \$(realpath ../blast_dbs) \\
     --taxonkit_db_dir \$(realpath ../) \\
     --curated_blast_db /software/projects/pawsey0964/curated_db/OceanGenomes.CuratedNT.NBDLTranche1and2and3.CuratedBOLD.NoDuplicate.fasta \\
+    --nt_blast_db /scratch/references/blastdb_update/blast-2026-02-01/db/core_nt \
     --organelle_type \"animal_mt\" \\
     --kvalue \"21\" \\
     --bs_config "${params.bs_config}" \\
