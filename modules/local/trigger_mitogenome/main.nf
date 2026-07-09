@@ -22,8 +22,8 @@ module load singularity/4.1.0-nompi
 
 # Get the absolute path to the current directory
 RUN_DIR="\$(pwd -P)"
-
-OUT_DIR="../mitogenomes/${params.run}_mitogenomes"
+BASE="/scratch/pawsey1348/\$USER"
+OUT_DIR="\$BASE/${params.run}_mitogenomes"
 mkdir -p \$OUT_DIR
 
 OUT_DIR="\$(cd \"\$OUT_DIR\" && pwd -P)"

@@ -5,6 +5,7 @@ module load singularity/4.1.0-nompi
 # Copy this template to nextflow_run_<RUN>.sh, set RUN below, then run the copied script.
 RUN=XXXX_0000_XX
 BASE="/scratch/pawsey1348/$USER"
+MITO_PIPELINE_DIR="/software/projects/pawsey1348/$USER/Oceanomics-OceanGenomes-Mitogenomes"
 
 # Outdir is made inside the base directory
 OUT="${BASE}/${RUN}"
@@ -35,7 +36,7 @@ nextflow -log ".nextflow_${RUN}.log" \
     -with-report \
     --run "$RUN" \
     --outdir "$OUT" \
-    --mitogenome_nfcore_dir "$BASE/Oceanomics-OceanGenomes-Mitogenomes" \
+    --mitogenome_nfcore_dir "$MITO_PIPELINE_DIR" \
     --kvalue "21" \
     --genomescope2_l false \
     --bs_config ~/.basespace/default.cfg \
