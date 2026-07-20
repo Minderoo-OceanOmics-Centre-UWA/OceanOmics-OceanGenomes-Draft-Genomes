@@ -72,6 +72,61 @@ If you manually edit or provide a samplesheet, check that coral/cnidarian sample
 
 An [example samplesheet](../assets/samplesheet.csv) has been provided with the pipeline (fill in FASTQ paths before use).
 
+## Backfilling database statistics from Acacia
+
+`bin/backfill_draft_genome_stats.py` reads only small report files from mounted
+object-storage archives. The `genomes.v2` Acacia backup intentionally excludes
+`fastp/`; mount `s3:oceanomics/OceanGenomes/analysed-data/draft-genomes` as a
+second read-only tree and pass it with `--fastp-root`. The command does not stage
+FASTQs, assemblies, or Meryl databases. Run it inside a Slurm compute allocation
+where both mounts and the PostgreSQL service are reachable.
+
+Create a tab-separated manifest with one unambiguous database key per row. A
+template is available at [`assets/backfill_manifest.tsv`](../assets/backfill_manifest.tsv).
+
+```tsv
+og_id	seq_date
+OG123	250101
+OG456	250205
+```
+
+First validate the complete set. Validation is the default and does not connect
+to or modify PostgreSQL:
+
+```bash
+singularity exec \
+  -B /path/to/acacia-mount,/path/to/s3-mount,/path/to/repository,/path/to/db-config,/path/to/reports \
+  docker://tylerpeirce/psycopg2:0.1 \
+  python3 /path/to/repository/bin/backfill_draft_genome_stats.py \
+    --archive-root /path/to/acacia-mount/genomes.v2 \
+    --fastp-root /path/to/s3-mount/draft-genomes \
+    --manifest /path/to/manifest.tsv \
+    --db-config /path/to/db-config/oceanomics.cfg \
+    --report-dir /path/to/reports/validation
+```
+
+Do not add `--apply` until `inventory.tsv` contains only `PASS` rows. Make a
+one-row canary manifest, apply it, and inspect `upload.tsv` and
+`verification.tsv` before applying the full manifest:
+
+```bash
+singularity exec \
+  -B /path/to/acacia-mount,/path/to/s3-mount,/path/to/repository,/path/to/db-config,/path/to/reports \
+  docker://tylerpeirce/psycopg2:0.1 \
+  python3 /path/to/repository/bin/backfill_draft_genome_stats.py \
+    --archive-root /path/to/acacia-mount/genomes.v2 \
+    --fastp-root /path/to/s3-mount/draft-genomes \
+    --manifest /path/to/canary.tsv \
+    --db-config /path/to/db-config/oceanomics.cfg \
+    --report-dir /path/to/reports/canary \
+    --apply
+```
+
+All six metric families for one `(og_id, seq_date)` are written and verified in
+one transaction. A parsing, SQL, or source-to-database comparison failure rolls
+back that sample. Successful and failed samples can safely be rerun because the
+writes use `ON CONFLICT (og_id, seq_date) DO UPDATE`.
+
 ## Running the pipeline
 
 The recommended command for OceanGenomes BaseSpace runs is:
