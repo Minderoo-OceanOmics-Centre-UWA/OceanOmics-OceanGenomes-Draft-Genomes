@@ -56,5 +56,17 @@ nextflow -log ".nextflow_${RUN}.log" \
     --skip_genome_qc false \
     --skip_upload_results false \
     # --input "$OUT/samplesheet/${RUN}_samplesheet.csv"
-    
-    
+
+# --- Per-genome compute cost (best-effort, self-contained) -----------------
+# Repo-local script: writes pipeline_info/cost_per_sample.csv (SU per OG sample)
+# for this run. Skipped when the poller runs this (it records cost, incl. the
+# central ledger, via post_draft.py). The `|| echo` keeps a cost failure from
+# affecting the run's exit status. Inherits this script's NXF_HOME + modules.
+if [ -z "${OCEANOMICS_SKIP_COST:-}" ]; then
+    COST_SCRIPT="$RUN_DIR/compute-audit/nf_workflow_cost.sh"
+    if [ -f "$COST_SCRIPT" ]; then
+        mkdir -p "$OUT/pipeline_info"
+        bash "$COST_SCRIPT" "$OUT" "$OUT/pipeline_info/compute_usage.csv" \
+            || echo "compute cost: accounting failed (non-fatal)"
+    fi
+fi
