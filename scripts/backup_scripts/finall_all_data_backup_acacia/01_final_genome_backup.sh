@@ -12,7 +12,8 @@
 
 . ../configfile.txt
 
-S3=s3://oceanomics/OceanGenomes/analysed-data/draft-genomes
+ACACIA=pawsey0964:oceanomics-draftgenomes/genomes.v2/
+S3=s3://ocom-oceangenomes/analysed-data/draft-genomes
 ARCHIVE_FAILED=0
 
 for i in "$rundir"/*; do
@@ -97,7 +98,7 @@ fi
 
 bash 02_data_audit_local.sh
 
-rclone move "$rundir" pawsey0964:oceanomics-draftgenomes/genomes.v2/ \
+rclone move "$rundir" $ACACIA \
     --exclude "**/fastp/**" \
     --checksum -P
 

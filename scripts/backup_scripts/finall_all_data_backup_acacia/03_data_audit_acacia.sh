@@ -8,7 +8,7 @@
 # rundir=/scratch/pawsey0964/tpeirce/NOVA_260108_AD/draftgenomes
 
 ACACIA=pawsey0964:oceanomics-draftgenomes/genomes.v2
-S3=s3:oceanomics/OceanGenomes/analysed-data/draft-genomes
+S3=s3://ocom-oceangenomes/analysed-data/draft-genomes
 
 size_row() {
   local ogid=$1

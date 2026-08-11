@@ -16,7 +16,7 @@
 # RUN=NOVA_260108_AD2
 # download=/scratch/pawsey0964/tpeirce/NOVA_260108_AD2/basespace/NOVA_260108_AD2
 
-rclone copy $download s3:oceanomics/OceanGenomes/illumina-raw/$RUN  --checksum --progress
+rclone copy $download s3://ocom-oceangenomes/illumina-raw/$RUN  --checksum --progress
 
 wait
 
