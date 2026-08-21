@@ -30,6 +30,18 @@ mkdir -p "\$OUT_DIR"
 # Get the absolute path to the output directory. This ensures that the script can be run from any location and still correctly reference the output directory.
 OUT_DIR="\$(cd "\$OUT_DIR" && pwd -P)"
 
+# Stage the backup scripts alongside the results and bake this run's outdir into
+# them, so the backup is a no-argument `sbatch $OUT_DIR/backup_scripts/backup.sh`
+# once the pipeline finishes.
+mkdir -p "\$OUT_DIR/backup_scripts"
+command cp -r "\$RUN_DIR/backup_scripts/." "\$OUT_DIR/backup_scripts/"
+sed -i "s|^RUNDIR_DEFAULT=.*|RUNDIR_DEFAULT=\\\"\$OUT_DIR\\\"|" "\$OUT_DIR/backup_scripts/backup.sh"
+
+if ! grep -q "^RUNDIR_DEFAULT=\\\"\$OUT_DIR\\\"\$" "\$OUT_DIR/backup_scripts/backup.sh"; then
+    echo "WARNING: could not bake RUNDIR into \$OUT_DIR/backup_scripts/backup.sh;" \\
+         "run it with -r \$OUT_DIR"
+fi
+
 # Change to output directory to run Nextflow there
 cd \$OUT_DIR
 
@@ -64,9 +76,9 @@ nextflow -log \$OUT_DIR/.nextflow_${params.run}.log \\
     --samplesheet_prefix \"samplesheet\" \\
     --template_sbt \"/home/\$USER/template.sbt\" \\
     --force_db_overwrite false \\
-    --translation_table \"2\"
-    --ena_webin_validate true \
-    --ena_study "PRJEB110568" \
+    --translation_table \"2\" \\
+    --ena_webin_validate true \\
+    --ena_study "PRJEB110568" \\
     --ena_validation_attempt "initial"
 EOF
 
