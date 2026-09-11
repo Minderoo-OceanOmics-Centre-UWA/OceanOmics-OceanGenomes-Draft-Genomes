@@ -3,6 +3,38 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+Generalised from "fish + corals" to all invertebrates.
+
+### `Added`
+
+- `busco_metazoa_db` registered in `nextflow_schema.json`, `conf/test.config`,
+  `conf/test_full.config` and `nextflow_run.sh`. It was used by the code and passed by
+  `nextflow_run_template.sh` but had never been declared anywhere else.
+- `--phylum` targeting in the taxonomy loader, and support for multiple comma-separated or
+  repeated targets in one invocation. NCBI leaves the class column empty for many
+  invertebrate lineages, so a class-only load silently missed them; where a matched row has
+  no class, the phylum name is written into `species.class` so the column is never null.
+
+### `Changed`
+
+- BUSCO lineage selection now defaults to metazoa instead of vertebrata. Ray-finned fish
+  classes get `--busco_acti_db`, an explicit list of other vertebrate classes gets
+  `--busco_vert_db`, and everything else gets `--busco_metazoa_db`. Previously any class
+  other than `Actinopteri`/`Anthozoa`/`Cnidaria` was silently scored against the vertebrate
+  database, which reads as a bad assembly rather than a bad lineage.
+- `scripts/taxonomy/load_anthozoa_taxonomy.py` renamed to `scripts/taxonomy/load_taxonomy.py`.
+
+### `Fixed`
+
+- `bin/create_samplesheet.py` no longer writes `unknown` placeholders for samples whose
+  taxonomy cannot be resolved. It now lists the offending samples and exits non-zero without
+  writing a samplesheet, because `unknown` was passed through to FCS-GX as
+  `--tax-id unknown` and failed only after MEGAHIT had already burned the SUs.
+- Genome QC aborts on a sample with an `unknown` or empty class rather than guessing a
+  BUSCO lineage for it.
+
 ## v1.1.0 - 2026-08-21
 
 Coral support, per-sample reporting, and backup/cost tooling.

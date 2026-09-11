@@ -326,18 +326,28 @@ if __name__ == "__main__":
     date = run_info["date"]
 
     rows = []
+    unresolved = []
     for og_id, files in pairs:
         species_info = get_species_info(db_params, og_id)
         if not species_info:
-            # Already warned – emit placeholder values so schema requirements are satisfied
-            nominal_species_id = "unknown"
-            taxon_id = "unknown"
-            tax_class = "unknown"
-        else:
-            nominal_species_id, taxon_id, tax_class = species_info
-            nominal_species_id = nominal_species_id or "unknown"
-            taxon_id = taxon_id if taxon_id not in (None, "") else "unknown"
-            tax_class = tax_class or "unknown"
+            # Already warned. Do not emit placeholders: a samplesheet carrying
+            # taxon_id=unknown cannot produce a valid run (FCS-GX is handed
+            # `--tax-id unknown` and fails only after MEGAHIT has burned the SUs),
+            # so collect the bad samples and fail before anything is written.
+            unresolved.append((og_id, "no species match"))
+            continue
+
+        nominal_species_id, taxon_id, tax_class = species_info
+        missing = []
+        if not nominal_species_id:
+            missing.append("nominal_species_id")
+        if taxon_id in (None, ""):
+            missing.append("taxon_id")
+        if not tax_class:
+            missing.append("class")
+        if missing:
+            unresolved.append((og_id, f"missing {', '.join(missing)}"))
+            continue
 
         fastq_1 = str(files[0])
         fastq_2 = str(files[1])
@@ -354,6 +364,16 @@ if __name__ == "__main__":
             'fastq_2': fastq_2
         }
         rows.append(row)
+
+    if unresolved:
+        print("[ERROR] Taxonomy could not be resolved for the following samples, "
+              "so no samplesheet was written:")
+        for og_id, reason in unresolved:
+            print(f"[ERROR]   {og_id}: {reason}")
+        print("[FIX] Load the missing taxa into the species table with "
+              "scripts/taxonomy/load_taxonomy.py (e.g. --phylum Mollusca,Echinodermata), "
+              "then re-run this script.")
+        sys.exit(1)
 
     if not rows:
         print("[ERROR] No rows to write (all entries skipped).")

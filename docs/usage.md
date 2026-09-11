@@ -64,11 +64,40 @@ The `class` value also controls BUSCO lineage selection during genome QC:
 
 | `class` value | BUSCO database parameter |
 | ------------- | ------------------------ |
-| `Actinopteri` | `--busco_acti_db` |
-| `Anthozoa` or `Cnidaria` | `--busco_metazoa_db` |
-| Any other value, including `unknown` | `--busco_vert_db` |
+| `Actinopteri`, `Actinopterygii`, `Teleostei` | `--busco_acti_db` |
+| Other vertebrate classes (`Chondrichthyes`, `Mammalia`, `Aves`, `Reptilia`, `Amphibia`, ...) | `--busco_vert_db` |
+| Anything else, i.e. all invertebrates | `--busco_metazoa_db` |
+| `unknown` or empty | run aborts |
 
-If you manually edit or provide a samplesheet, check that coral/cnidarian samples use `Anthozoa` or `Cnidaria` so they are not assigned the default vertebrate BUSCO database.
+The default is metazoa, not vertebrata, so a new invertebrate class needs no code change to
+be scored against a sensible lineage. The two vertebrate lists live at the top of the BUSCO
+selection block in `subworkflows/local/genome_qc/main.nf`; adding a class is a one-line edit
+there.
+
+A sample whose `class` is `unknown` (or empty) aborts the run rather than being guessed at.
+That means its species is missing from the `species` table: load it with
+`scripts/taxonomy/load_taxonomy.py` (see below) and regenerate the samplesheet.
+`bin/create_samplesheet.py` applies the same rule, and refuses to write a samplesheet at all
+if any sample's taxonomy cannot be resolved.
+
+### Loading taxonomy for new clades
+
+`scripts/taxonomy/load_taxonomy.py` bulk-loads NCBI species-rank taxa into the `species`
+table from the NCBI `new_taxdump`. Target one or more classes and/or phyla:
+
+```bash
+# dry-run: writes a CSV preview, touches nothing
+python3 scripts/taxonomy/load_taxonomy.py --phylum Mollusca,Echinodermata,Arthropoda,Porifera
+
+# after inspecting the preview
+python3 scripts/taxonomy/load_taxonomy.py --phylum Mollusca,Echinodermata --apply ~/postgresql_details/oceanomics.cfg
+```
+
+Use `--phylum` rather than `--class` for invertebrates: NCBI leaves the class column empty
+for many invertebrate lineages, and a class-only load silently misses them. Where a matched
+row has no NCBI class, the phylum name is written into `species.class`, which routes to the
+metazoa BUSCO database as intended. Existing rows are never modified
+(`ON CONFLICT (species) DO NOTHING`).
 
 An [example samplesheet](../assets/samplesheet.csv) has been provided with the pipeline (fill in FASTQ paths before use).
 

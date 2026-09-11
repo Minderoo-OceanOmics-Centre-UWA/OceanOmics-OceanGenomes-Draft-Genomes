@@ -2,10 +2,16 @@
 """
 Bulk-load NCBI species-rank taxa into the OceanOmics `species` table.
 
-Default target is class Anthozoa (corals, anemones, sea pens). Source is the
-NCBI `new_taxdump` archive (rankedlineage.dmp), which carries the full
-class/order/family/genus/species lineage plus the NCBI taxon_id for every
-named taxon. Existing rows in the `species` table are never touched
+Targets are given as one or more NCBI classes (--class) and/or phyla (--phylum),
+comma-separated or repeated. Phylum targeting matters for invertebrates: NCBI
+leaves the class column empty for a lot of invertebrate lineages, so a
+class-only load silently misses them. Where the class column is empty, the
+phylum name is written into `species.class` so the column is never null and the
+pipeline's BUSCO lineage selector still has something to route on.
+
+Source is the NCBI `new_taxdump` archive (rankedlineage.dmp), which carries the
+full phylum/class/order/family/genus/species lineage plus the NCBI taxon_id for
+every named taxon. Existing rows in the `species` table are never touched
 (ON CONFLICT (species) DO NOTHING).
 
 Default mode is dry-run: writes a CSV preview of the rows that would be
@@ -27,7 +33,8 @@ RANKEDLINEAGE_MEMBER = "rankedlineage.dmp"
 
 # rankedlineage.dmp columns, in order:
 #   tax_id | name | species | genus | family | order | class | phylum | kingdom | superkingdom
-COL_TAX_ID, COL_NAME, COL_SPECIES, COL_GENUS, COL_FAMILY, COL_ORDER, COL_CLASS = range(7)
+(COL_TAX_ID, COL_NAME, COL_SPECIES, COL_GENUS, COL_FAMILY, COL_ORDER,
+ COL_CLASS, COL_PHYLUM) = range(8)
 
 
 def load_db_config(config_file):
@@ -84,18 +91,26 @@ def parse_rankedlineage_line(line: str):
     return [f.strip() for f in line.split("\t|\t")]
 
 
-def collect_species_rows(rankedlineage_path: Path, target_class: str):
+def collect_species_rows(rankedlineage_path: Path, target_classes, target_phyla):
     """
-    Yield dicts for species-rank entries belonging to `target_class`.
+    Yield dicts for species-rank entries in any of `target_classes` (matched on
+    the class column) or `target_phyla` (matched on the phylum column).
 
     In rankedlineage.dmp each lineage column is empty for the rank of the row
     itself and populated for ranks above it. So a species-rank row has an
     empty `species` column and a populated `genus` column; `name` carries the
     binomial. Subspecies/strain rows have both `species` and `genus`
     populated. Genus-rank rows have both empty.
+
+    NCBI leaves the class column empty for many invertebrate lineages. When a
+    matched row has no class, the phylum name is used for the `class` field so
+    the species table never carries a null there.
     """
-    target_lower = target_class.lower()
+    class_lower = {c.lower() for c in target_classes}
+    phylum_lower = {p.lower() for p in target_phyla}
     kept = 0
+    kept_by_target = {}
+    classless = 0
     skipped_noise = 0
     with open(rankedlineage_path, "r", encoding="utf-8") as fh:
         for raw in fh:
@@ -103,7 +118,12 @@ def collect_species_rows(rankedlineage_path: Path, target_class: str):
             if len(cols) < 10:
                 continue
             cls = cols[COL_CLASS]
-            if cls.lower() != target_lower:
+            phylum = cols[COL_PHYLUM]
+            if cls.lower() in class_lower:
+                matched_on = cls
+            elif phylum.lower() in phylum_lower:
+                matched_on = phylum
+            else:
                 continue
             species_col = cols[COL_SPECIES]
             genus = cols[COL_GENUS]
@@ -127,17 +147,30 @@ def collect_species_rows(rankedlineage_path: Path, target_class: str):
             except ValueError:
                 continue
             epithet = name[len(genus):].strip() if name.startswith(genus + " ") else ""
+            # Fall back to the phylum when NCBI gives the lineage no class, so the
+            # species.class column is never null downstream.
+            effective_class = cls or phylum or None
+            if not cls:
+                classless += 1
             kept += 1
+            kept_by_target[matched_on] = kept_by_target.get(matched_on, 0) + 1
             yield {
                 "species": name,
-                "class": cls,
+                "class": effective_class,
                 "ordr": cols[COL_ORDER] or None,
                 "family": cols[COL_FAMILY] or None,
                 "genus": genus or None,
                 "epithet": epithet or None,
                 "ncbi_taxon_id": tax_id,
             }
-    print(f"[INFO] Matched {kept} species-rank rows in class {target_class}", file=sys.stderr)
+    print(f"[INFO] Matched {kept} species-rank rows across "
+          f"{len(class_lower)} class target(s) and {len(phylum_lower)} phylum target(s)",
+          file=sys.stderr)
+    for target, n in sorted(kept_by_target.items(), key=lambda kv: -kv[1]):
+        print(f"[INFO]   {target}: {n}", file=sys.stderr)
+    if classless:
+        print(f"[INFO] {classless} rows had no NCBI class; used the phylum name instead",
+              file=sys.stderr)
     if skipped_noise:
         print(f"[INFO] Skipped {skipped_noise} noisy names (sp./cf./aff./hybrid/unidentified)", file=sys.stderr)
 
@@ -196,21 +229,43 @@ def apply_inserts(rows, db_params, provenance: str, batch_size: int = 500):
     return attempted_total, inserted_total
 
 
+def split_targets(values):
+    """Flatten repeated and comma-separated --class/--phylum values."""
+    out = []
+    for value in values or []:
+        for part in value.split(","):
+            part = part.strip()
+            if part and part not in out:
+                out.append(part)
+    return out
+
+
 def main():
-    p = argparse.ArgumentParser(description="Bulk-load NCBI species-rank taxa for a target class into the OceanOmics species table.")
-    p.add_argument("--class", dest="target_class", default="Anthozoa",
-                   help="NCBI class to load (default: Anthozoa)")
+    p = argparse.ArgumentParser(
+        description="Bulk-load NCBI species-rank taxa for one or more classes/phyla into the OceanOmics species table.",
+        epilog="Example: --phylum Mollusca,Echinodermata,Arthropoda --class Anthozoa")
+    p.add_argument("--class", dest="target_classes", action="append", default=[], metavar="NAME",
+                   help="NCBI class to load. Repeatable and/or comma-separated.")
+    p.add_argument("--phylum", dest="target_phyla", action="append", default=[], metavar="NAME",
+                   help="NCBI phylum to load. Repeatable and/or comma-separated. Use this for "
+                        "invertebrates: NCBI leaves the class column empty for many of them.")
     p.add_argument("--cache-dir", default=str(Path(__file__).parent / ".taxdump_cache"),
                    help="Where to cache the downloaded NCBI taxdump (default: ./.taxdump_cache next to this script)")
     p.add_argument("--refresh", action="store_true",
                    help="Force re-download even if a cached taxdump exists")
     p.add_argument("--preview-out", default=None,
-                   help="Path for the CSV preview written in dry-run mode (default: <class>_preview_<date>.csv in cwd)")
+                   help="Path for the CSV preview written in dry-run mode (default: <targets>_preview_<date>.csv in cwd)")
     p.add_argument("--apply", metavar="DB_CFG", default=None,
                    help="Insert rows into the species table using this postgres cfg file. Without this flag, runs in dry-run mode.")
     p.add_argument("--limit", type=int, default=None,
                    help="For testing: only process the first N matching rows")
     args = p.parse_args()
+
+    target_classes = split_targets(args.target_classes)
+    target_phyla = split_targets(args.target_phyla)
+    if not target_classes and not target_phyla:
+        p.error("give at least one --class and/or --phylum to load")
+    all_targets = target_classes + target_phyla
 
     cache_dir = Path(args.cache_dir)
     archive = ensure_taxdump(cache_dir, refresh=args.refresh)
@@ -221,14 +276,15 @@ def main():
 
     def row_iter():
         seen = 0
-        for r in collect_species_rows(rankedlineage_path, args.target_class):
+        for r in collect_species_rows(rankedlineage_path, target_classes, target_phyla):
             if args.limit is not None and seen >= args.limit:
                 return
             seen += 1
             yield r
 
     if args.apply is None:
-        out_path = Path(args.preview_out) if args.preview_out else Path(f"{args.target_class.lower()}_preview_{today}.csv")
+        slug = "_".join(t.lower() for t in all_targets)[:80]
+        out_path = Path(args.preview_out) if args.preview_out else Path(f"{slug}_preview_{today}.csv")
         n = write_preview_csv(row_iter(), out_path, provenance)
         print(f"[OK] DRY-RUN wrote {n} rows to {out_path}")
         print(f"[NEXT] Inspect the CSV, then re-run with: --apply {args.apply or '<db.cfg>'}")
@@ -238,7 +294,9 @@ def main():
     attempted, inserted = apply_inserts(row_iter(), db_params, provenance)
     skipped = attempted - inserted
     print(f"[OK] Attempted {attempted} rows; inserted {inserted}; skipped (already present) {skipped}")
-    print(f"[NEXT] Verify with: SELECT count(*), ordr FROM species WHERE class = '{args.target_class}' GROUP BY ordr ORDER BY count DESC;")
+    target_sql = ", ".join(f"'{t}'" for t in all_targets)
+    print(f"[NEXT] Verify with: SELECT class, count(*) FROM species WHERE class IN ({target_sql}) GROUP BY class ORDER BY count DESC;")
+    print("[NOTE] Rows whose NCBI lineage had no class were stored under their phylum name.")
 
 
 if __name__ == "__main__":

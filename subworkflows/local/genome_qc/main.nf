@@ -101,15 +101,35 @@ workflow GENOME_QC {
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
     
-    // Determining which BUSCO database to use based on meta.class
+    // Determining which BUSCO database to use based on meta.class.
+    // Ray-finned fish get the actinopterygii db, other vertebrates get the vertebrata db,
+    // and everything else (invertebrates) falls back to the metazoa db. To route a new
+    // class, add its name to one of the two lists below; anything unlisted is treated as
+    // an invertebrate, which is the safe default now that we run more inverts than fish.
+    // Note: Ascidiacea (tunicates) is deliberately absent from ACTI/VERT - it is a
+    // chordate but not a vertebrate, so it correctly falls through to metazoa.
+    def BUSCO_ACTI_CLASSES = ['Actinopteri', 'Actinopterygii', 'Teleostei']
+    def BUSCO_VERT_CLASSES = [
+        'Chondrichthyes', 'Mammalia', 'Aves', 'Reptilia', 'Amphibia',
+        'Myxini', 'Hyperoartia', 'Coelacanthimorpha', 'Dipneusti', 'Lepidosauria', 'Testudines'
+    ]
+
     ch_with_busco_db = assembly.map { meta, file ->
+        if ( !meta.class || meta.class.toString().toLowerCase() == 'unknown' ) {
+            throw new IllegalArgumentException(
+                "Sample '${meta.id}' has no taxonomic class (got '${meta.class}'), so no BUSCO " +
+                "lineage can be chosen. Load the missing taxonomy with " +
+                "scripts/taxonomy/load_taxonomy.py and regenerate the samplesheet."
+            )
+        }
+
         def busco_db
-        if ( meta.class == 'Actinopteri' ) {
+        if ( meta.class in BUSCO_ACTI_CLASSES ) {
             busco_db = params.busco_acti_db
-        } else if ( meta.class in ['Anthozoa', 'Cnidaria'] ) {
-            busco_db = params.busco_metazoa_db
-        } else {
+        } else if ( meta.class in BUSCO_VERT_CLASSES ) {
             busco_db = params.busco_vert_db
+        } else {
+            busco_db = params.busco_metazoa_db
         }
         return [meta, file, busco_db]
     }

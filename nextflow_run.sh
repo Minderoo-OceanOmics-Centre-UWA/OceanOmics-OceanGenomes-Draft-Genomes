@@ -28,6 +28,7 @@ nextflow -log ".nextflow_${RUN}.log" \
     --ramdisk_path "/tmp/gxdb/" \
     --busco_acti_db "/scratch/references/busco_db/actinopterygii_odb10" \
     --busco_vert_db "/scratch/references/busco_db/vertebrata_odb10" \
+    --busco_metazoa_db "/software/projects/pawsey0964/busco_db/metazoa_odb12" \
     --tempdir "/scratch/pawsey1348/$USER/tmp" \
     --refresh-modules \
     --skip_bs_download false \

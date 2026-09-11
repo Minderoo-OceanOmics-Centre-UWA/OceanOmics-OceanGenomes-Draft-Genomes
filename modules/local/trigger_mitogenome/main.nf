@@ -31,7 +31,7 @@ mkdir -p "\$OUT_DIR"
 OUT_DIR="\$(cd "\$OUT_DIR" && pwd -P)"
 
 # Stage the backup scripts alongside the results and bake this run's outdir into
-# them, so the backup is a no-argument `sbatch $OUT_DIR/backup_scripts/backup.sh`
+# them, so the backup is a no-argument `sbatch \$OUT_DIR/backup_scripts/backup.sh`
 # once the pipeline finishes.
 mkdir -p "\$OUT_DIR/backup_scripts"
 command cp -r "\$RUN_DIR/backup_scripts/." "\$OUT_DIR/backup_scripts/"
@@ -64,8 +64,8 @@ nextflow -log \$OUT_DIR/.nextflow_${params.run}.log \\
     --kvalue \"21\" \\
     --bs_config "${params.bs_config}" \\
     --sql_config "${params.sql_config}" \\
-    --enable_oatk_fallback true \
-    --oatk_mito_db /software/projects/pawsey0964/oatk_db/actinopterygii_mito.fam \
+    --enable_oatk_fallback true \\
+    --oatk_mito_db /software/projects/pawsey0964/oatk_db/actinopterygii_mito.fam \\
     --binddir /scratch \\
     --tempdir /scratch/pawsey0964/\$USER/tmp \\
     --refresh-modules \\
