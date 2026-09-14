@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
-import psycopg2
+import argparse
 import configparser
-import sys
 import csv
-import os
 import glob
+import os
+import re
+import sys
+
+import psycopg2
+
+# Sibling import: Nextflow bind-mounts bin/ into the task container and puts it
+# on PATH, so this resolves via sys.path[0]. Kept byte-identical to the copy in
+# the mitogenome pipeline.
+from taxdump_lineage import TaxdumpLineage
 
 def load_db_config(config_file):
     config = configparser.ConfigParser()
@@ -163,13 +171,13 @@ def get_species_info(db_params, og_id):
                     match_level
                 ) = result
 
-                if taxon_id is None or tax_class is None:
-                    print(f"[WARN] No matching species data found for OG ID: {og_id}")
-
-                # Return exactly what the rest of the script expects
+                # Deliberately quiet on a miss: the caller falls back to the
+                # NCBI taxdump, so warning here would report a failure that
+                # mostly does not happen. Per-sample provenance goes to the
+                # resolution report, and a real miss is reported at the end.
                 return (nominal_species_id, taxon_id, tax_class)
             else:
-                print(f"[WARN] No matching species data found for OG ID: {og_id}")
+                print(f"[WARN] No sample row found for OG ID: {og_id}")
                 return None
     except Exception as e:
         print(f"[ERROR] Database query failed for {og_id}: {e}")
@@ -308,36 +316,189 @@ def create_samplesheet(rows, output_file):
                 row['fastq_2']
             ])
 
-if __name__ == "__main__":
-    if len(sys.argv) != 4:
-        print("Usage:\n  python create_samplesheet.py <db.cfg> <run_id> <fastq_dir>")
-        sys.exit(1)
 
-    config_file = sys.argv[1]
-    run_id = sys.argv[2]
-    fastq_dir = sys.argv[3]
+def clean_species_name(name):
+    """
+    Strip the qualifier noise that makes a nominal_species_id unusable as an
+    NCBI taxonomy query (e.g. 'Alepes vari (TBC)', 'Astronesthes spp.',
+    "Nesogobius sp. `groove cheek`"). Returns the best plain query string we can
+    salvage: 'Genus species' if a binomial survives, otherwise the bare genus.
+    Used only as a fallback when the species table yields no match.
 
-    db_params = load_db_config(config_file)
+    Kept in step with the copy in the mitogenome pipeline's create_samplesheet.py.
+    """
+    if not name:
+        return ""
+    s = str(name)
+    s = re.sub(r"\([^)]*\)", " ", s)        # drop parentheticals: (TBC), (Class)
+    s = re.sub(r"`[^`]*`", " ", s)           # drop backtick descriptors: `groove cheek`
+    s = re.sub(r"[`'\"]", " ", s)            # stray quotes
+    # drop open-nomenclature qualifiers and undescribed-species markers
+    s = re.sub(r"\b(spp?|cf|aff|nr|sp|TBC)\.?\b", " ", s, flags=re.IGNORECASE)
+    s = re.sub(r"\s+", " ", s).strip()
+    # Strip leading/trailing punctuation from each token and drop any token that
+    # has no letters. This removes the stray '.' left behind by e.g. 'spp.'
+    # ('Blachea spp.' -> 'Blachea', not 'Blachea .'), which NCBI rejects.
+    tokens = [re.sub(r"^[^A-Za-z]+|[^A-Za-z]+$", "", t) for t in s.split()]
+    tokens = [t for t in tokens if t]
+    if not tokens:
+        return ""
+    # keep at most a binomial (Genus species); a lone genus is a valid query too
+    return " ".join(tokens[:2])
+
+
+def build_resolver(taxdump_dir):
+    """
+    One TaxdumpLineage for the whole run, or None when no usable dump was given.
+
+    Parsing nodes.dmp/names.dmp costs ~6s and ~1 GB, so it must not happen per
+    sample. index_all_ranks is on because our nominal names sit at whatever rank
+    the collection could identify -- 'Caridea' is an infraorder, which the
+    default five-rank index does not hold at all. class_falls_back_to_phylum is
+    on to match what scripts/taxonomy/load_taxonomy.py writes into
+    `species.class` for lineages where NCBI has no class rank.
+    """
+    if not taxdump_dir:
+        return None
+    resolver = TaxdumpLineage(
+        taxdump_dir,
+        index_all_ranks=True,
+        class_falls_back_to_phylum=True,
+    )
+    if not resolver.available:
+        print(f"[WARN] --taxdump-dir '{taxdump_dir}' has no nodes.dmp/names.dmp; "
+              f"taxonomy fallback disabled")
+        return None
+    return resolver
+
+
+def resolve_species_info(db_params, og_id, resolver=None):
+    """
+    (nominal_species_id, taxon_id, tax_class, source) for a sample.
+
+    The curated `species` table stays authoritative and is tried first. It only
+    holds taxa someone has loaded, though, and the invertebrate runs draw from
+    most of Metazoa, so a miss there is the normal case rather than the
+    exception. Anything the table leaves blank is filled from the NCBI taxdump.
+
+    `source` is 'db', 'db+taxdump', 'taxdump' or 'unresolved'.
+    """
+    species_info = get_species_info(db_params, og_id)
+    if not species_info:
+        return None, None, None, 'unresolved'
+
+    nominal_species_id, taxon_id, tax_class = species_info
+
+    db_had_taxon = taxon_id not in (None, "")
+    db_had_class = bool(tax_class)
+    if db_had_taxon and db_had_class:
+        return nominal_species_id, taxon_id, tax_class, 'db'
+
+    lineage = {}
+    query_name = clean_species_name(nominal_species_id)
+    if resolver is not None and query_name:
+        try:
+            lineage = resolver.lineage_for_name(query_name)
+        except Exception as exc:
+            print(f"[WARN] taxdump lookup failed for {og_id} "
+                  f"('{query_name}'): {exc}")
+
+    if lineage:
+        if not db_had_taxon:
+            # The taxid of whatever node matched, at whatever rank. FCS-GX takes
+            # a --tax-id at any rank, so a class-rank id beats no id at all.
+            taxon_id = lineage.get('matched_taxid') or taxon_id
+        if not db_had_class:
+            tax_class = lineage.get('class') or tax_class
+
+    resolved = taxon_id not in (None, "") and bool(tax_class)
+    if not resolved:
+        source = 'unresolved'
+    elif db_had_taxon or db_had_class:
+        source = 'db+taxdump' if lineage else 'db'
+    else:
+        source = 'taxdump'
+
+    return nominal_species_id, taxon_id, tax_class, source
+
+
+# What an unresolved field is written as. Matches the `^(unknown|None)$` pattern
+# assets/schema_input.json already allows for taxon_id, so these rows parse and
+# reach validateTaxonomy() rather than failing schema validation first.
+UNKNOWN = 'unknown'
+
+RESOLUTION_COLUMNS = ('sample', 'nominal_species_id', 'taxon_id', 'class', 'source')
+
+
+def write_resolution_report(path, rows):
+    """
+    Per-sample taxonomy provenance, written next to the samplesheet.
+
+    Without it a taxdump-derived class is indistinguishable from a curated one,
+    and there is no way to audit which samples leaned on the fallback.
+    """
+    if not path:
+        return
+    with open(path, 'w', newline='') as handle:
+        # lineterminator: csv.writer defaults to CRLF, which leaves a stray \r on
+        # the last column of every row and breaks awk/cut/grep on this file.
+        writer = csv.writer(handle, delimiter='\t', lineterminator='\n')
+        writer.writerow(RESOLUTION_COLUMNS)
+        for row in rows:
+            writer.writerow([row.get(column, '') for column in RESOLUTION_COLUMNS])
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Create a draft-genomes samplesheet from a directory of FASTQ files.")
+    parser.add_argument("config_file", help="Path to the postgres config file.")
+    parser.add_argument("run_id", help="Sequencing run ID, e.g. NOVA_260909_LA.")
+    parser.add_argument("fastq_dir", help="Directory of pooled FASTQ files.")
+    parser.add_argument("--taxdump-dir", default=None,
+                        help="NCBI taxdump directory (nodes.dmp/names.dmp). Used to "
+                             "resolve taxon_id/class when the species table has no "
+                             "match. Without it, unmatched samples fail the run.")
+    parser.add_argument("--resolution-report", default=None,
+                        help="Where to write the per-sample taxonomy provenance table "
+                             "(default: taxonomy_resolution.tsv next to the samplesheet).")
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+
+    db_params = load_db_config(args.config_file)
 
     # Discover (og_id, [R1,R2]) pairs from directory
-    pairs = discover_pairs_from_dir(fastq_dir)
+    pairs = discover_pairs_from_dir(args.fastq_dir)
 
-    run_info = parse_run_id(run_id)
+    run_info = parse_run_id(args.run_id)
     date = run_info["date"]
 
+    output_file = f"{args.run_id}_samplesheet.csv"
+    resolution_report = args.resolution_report or os.path.join(
+        os.path.dirname(os.path.abspath(output_file)), "taxonomy_resolution.tsv")
+
+    resolver = build_resolver(args.taxdump_dir)
+    if resolver is None:
+        print("[WARN] No taxdump available: taxon_id/class come from the species "
+              "table only, so any sample it does not carry will fail below.")
+
     rows = []
+    resolution_rows = []
     unresolved = []
     for og_id, files in pairs:
-        species_info = get_species_info(db_params, og_id)
-        if not species_info:
-            # Already warned. Do not emit placeholders: a samplesheet carrying
-            # taxon_id=unknown cannot produce a valid run (FCS-GX is handed
-            # `--tax-id unknown` and fails only after MEGAHIT has burned the SUs),
-            # so collect the bad samples and fail before anything is written.
-            unresolved.append((og_id, "no species match"))
-            continue
+        nominal_species_id, taxon_id, tax_class, source = resolve_species_info(
+            db_params, og_id, resolver)
 
-        nominal_species_id, taxon_id, tax_class = species_info
+        resolution_rows.append({
+            'sample': og_id,
+            'nominal_species_id': nominal_species_id or '',
+            'taxon_id': taxon_id if taxon_id is not None else '',
+            'class': tax_class or '',
+            'source': source,
+        })
+
         missing = []
         if not nominal_species_id:
             missing.append("nominal_species_id")
@@ -346,39 +507,70 @@ if __name__ == "__main__":
         if not tax_class:
             missing.append("class")
         if missing:
-            unresolved.append((og_id, f"missing {', '.join(missing)}"))
-            continue
+            # Emit the row anyway, marked UNKNOWN, and keep going. The samplesheet
+            # is only published if this task succeeds (publishDir does not run on a
+            # failed task), and an operator cannot fix rows they cannot see.
+            #
+            # This does NOT put an unknown taxon back in front of FCS-GX, which is
+            # what these placeholders used to cause: `--tax-id unknown` failed only
+            # after MEGAHIT had burned the SUs. The run is stopped instead by
+            # validateTaxonomy() in subworkflows/local/prepare_samplesheet, which
+            # fires after this sheet is published and before any assembly task is
+            # submitted. Keep the two in step: that guard is what makes writing
+            # these rows safe.
+            unresolved.append((og_id, nominal_species_id,
+                               f"missing {', '.join(missing)}"))
 
-        fastq_1 = str(files[0])
-        fastq_2 = str(files[1])
-
-        row = {
+        rows.append({
             'sample': og_id,
-            'run': run_id,
+            'run': args.run_id,
             'date': date,
             'prefix': f"{og_id}.ilmn.{date}",
-            'nom_species_id': nominal_species_id,
-            'taxon_id': taxon_id,
-            'class': tax_class,
-            'fastq_1': fastq_1,
-            'fastq_2': fastq_2
-        }
-        rows.append(row)
+            'nom_species_id': nominal_species_id or UNKNOWN,
+            'taxon_id': taxon_id if taxon_id not in (None, "") else UNKNOWN,
+            'class': tax_class or UNKNOWN,
+            'fastq_1': str(files[0]),
+            'fastq_2': str(files[1]),
+        })
 
-    if unresolved:
-        print("[ERROR] Taxonomy could not be resolved for the following samples, "
-              "so no samplesheet was written:")
-        for og_id, reason in unresolved:
-            print(f"[ERROR]   {og_id}: {reason}")
-        print("[FIX] Load the missing taxa into the species table with "
-              "scripts/taxonomy/load_taxonomy.py (e.g. --phylum Mollusca,Echinodermata), "
-              "then re-run this script.")
-        sys.exit(1)
+    # Written even on the failure path: it is the only record of what the taxdump
+    # did and did not rescue, which is what the operator needs to fix the rest.
+    write_resolution_report(resolution_report, resolution_rows)
+    print(f"[INFO] Wrote taxonomy provenance to: {resolution_report}")
 
     if not rows:
+        # A different failure from unresolved taxonomy, and there is no sheet to
+        # write: no FASTQ pair was usable at all.
         print("[ERROR] No rows to write (all entries skipped).")
-        sys.exit(1)
+        return 1
 
-    output_file = f"{run_id}_samplesheet.csv"
     create_samplesheet(rows, output_file)
     print(f"[INFO] Wrote samplesheet to: {output_file}")
+
+    if unresolved:
+        print(f"[ERROR] Taxonomy could not be resolved for {len(unresolved)} of "
+              f"{len(rows)} samples. They are written to the samplesheet with "
+              f"'{UNKNOWN}' in the taxon_id and class columns:")
+        for og_id, nominal_species_id, reason in unresolved:
+            print(f"[ERROR]   {og_id}: {reason} "
+                  f"(nominal_species_id='{nominal_species_id or ''}')")
+        print("[ERROR] The pipeline will stop before any assembly work rather than "
+              "run these, so no compute is spent until they are fixed.")
+        print("[FIX] These names were not found in the species table OR in the NCBI "
+              "taxonomy, which usually means the nominal_species_id is misspelled "
+              "(e.g. 'Actinaria' for 'Actiniaria') or is not a taxon name at all "
+              "(e.g. 'Larval fish'). Fix it either way round: correct the "
+              "nominal_species_id in the sample table and delete the published "
+              "samplesheet so it is regenerated, or edit the taxon_id and class "
+              "columns in the published samplesheet and re-run. If the name is right "
+              "and simply uncurated, load it with scripts/taxonomy/load_taxonomy.py "
+              "(e.g. --phylum Mollusca,Echinodermata).")
+
+    taxdump_rescued = sum(1 for r in resolution_rows if r['source'] in ('taxdump', 'db+taxdump'))
+    if taxdump_rescued:
+        print(f"[INFO] {taxdump_rescued} of {len(resolution_rows)} samples had their "
+              f"taxonomy completed from the NCBI taxdump rather than the species table.")
+
+
+if __name__ == "__main__":
+    sys.exit(main() or 0)

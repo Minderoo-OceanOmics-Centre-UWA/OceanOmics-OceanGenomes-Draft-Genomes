@@ -17,7 +17,8 @@
             "run": {
                 "type": "string",
                 "description": "Sequencing run ID (e.g., NOVA_250131_AD).",
-                "pattern": "^[A-Za-z0-9_\\-\\.]+$"
+                "pattern": "^[A-Za-z0-9_\\-\\.]+$",
+                "meta": ["run"]
             },
             "date": {
                 "description": "Date code extracted from run (e.g., 250131).",
@@ -30,16 +31,19 @@
                         "type": "integer",
                         "minimum": 0
                     }
-                ]
+                ],
+                "meta": ["date"]
             },
             "prefix": {
                 "type": "string",
                 "description": "Sample prefix used to name downstream files (e.g., OG747.ilmn.250131).",
-                "pattern": "^\\S+$"
+                "pattern": "^\\S+$",
+                "meta": ["prefix"]
             },
             "nom_species_id": {
                 "type": "string",
-                "description": "Nominal species identifier returned from the SQL metadata lookup."
+                "description": "Nominal species identifier returned from the SQL metadata lookup.",
+                "meta": ["nom_species_id"]
             },
             "taxon_id": {
                 "description": "NCBI taxon identifier or 'unknown'/ 'None' when absent.",
@@ -52,11 +56,13 @@
                         "type": "integer",
                         "minimum": 0
                     }
-                ]
+                ],
+                "meta": ["taxon_id"]
             },
             "class": {
                 "type": "string",
-                "description": "Higher-level taxonomic class (e.g., Actinopteri, Mammalia)."
+                "description": "Higher-level taxonomic class (e.g., Actinopteri, Mammalia).",
+                "meta": ["class"]
             },
             "fastq_1": {
                 "type": "string",

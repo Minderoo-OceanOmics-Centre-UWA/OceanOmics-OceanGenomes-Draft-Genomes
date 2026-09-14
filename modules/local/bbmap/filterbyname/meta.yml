@@ -46,10 +46,10 @@ output:
           description: Summary of the number and total length of contigs excluded, trimmed and reviewed.
           pattern: "*.filter_report.txt"
   - names_to_filter:
-      - "*.review_scaffolds_1kb.txt":
+      - "*.review_scaffolds.txt":
           type: file
-          description: List of contig identifiers flagged for review under 1 kb.
-          pattern: "*.review_scaffolds_1kb.txt"
+          description: List of FCS-GX REVIEW contig identifiers removed from the assembly, as selected by params.fcs_review_action.
+          pattern: "*.review_scaffolds.txt"
   - contigs_under_500bp:
       - "*.contig_count_500bp.txt":
           type: file

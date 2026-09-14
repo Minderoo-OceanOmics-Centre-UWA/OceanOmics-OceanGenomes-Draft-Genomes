@@ -11,7 +11,9 @@ include { MERYL_HISTOGRAM           } from '../../../modules/nf-core/meryl/histo
 include { GENOMESCOPE2              } from '../../../modules/nf-core/genomescope2'
 include { CALCULATE_SEQUENCING_COVERAGE  } from '../../../modules/local/coverage/calculations'
 include { COMPILE_JSON_TO_CSV       } from '../../../modules/local/coverage/compile'
-include { MEGAHIT                   } from '../../../modules/nf-core/megahit'
+include { MEGAHIT                   } from '../../../modules/local/megahit'
+include { KRAKEN2_KRAKEN2           } from '../../../modules/local/kraken2/kraken2'
+include { KRAKENTOOLS_EXTRACTREADS  } from '../../../modules/local/krakentools/extractreads'
 
 
 /*
@@ -33,13 +35,50 @@ workflow GENOME_ASSEMBLY {
     ch_multiqc_files = Channel.empty()
     ch_sample_multiqc_inputs = Channel.empty()
 
+    //
+    // MODULE: Run kraken2 read-level decontamination
+    //
+    // This has to happen before meryl and megahit, not after assembly. When half a
+    // library is bacterial, megahit co-assembles host and symbiont and no amount of
+    // contig screening afterwards recovers the contiguity that was lost, and the k-mer
+    // histogram has no separable genomic peak for GenomeScope to fit.
+    //
+    if (!params.skip_kraken2_decontamination) {
+        KRAKEN2_KRAKEN2 (
+            fastp_reads, // tuple val(meta), path(reads)
+            file(params.kraken2_db, checkIfExists: true) // path db
+        )
+        ch_versions = ch_versions.mix(KRAKEN2_KRAKEN2.out.versions.first())
+
+        ch_extract_input = fastp_reads
+            .join(KRAKEN2_KRAKEN2.out.classified_reads_assignment, by: 0)
+            .join(KRAKEN2_KRAKEN2.out.report, by: 0)
+
+        KRAKENTOOLS_EXTRACTREADS (
+            ch_extract_input, // tuple val(meta), path(reads), path(assignment), path(report)
+            params.kraken2_exclude_taxids // val taxids
+        )
+        ch_versions = ch_versions.mix(KRAKENTOOLS_EXTRACTREADS.out.versions.first())
+
+        ch_assembly_reads = KRAKENTOOLS_EXTRACTREADS.out.reads
+
+        ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(KRAKEN2_KRAKEN2.out.tool_params)
+        ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(KRAKENTOOLS_EXTRACTREADS.out.tool_params)
+        ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(KRAKENTOOLS_EXTRACTREADS.out.multiqc)
+        ch_multiqc_files = ch_multiqc_files.mix(KRAKEN2_KRAKEN2.out.tool_params.collect { it[1] })
+        ch_multiqc_files = ch_multiqc_files.mix(KRAKENTOOLS_EXTRACTREADS.out.tool_params.collect { it[1] })
+    } else {
+        ch_assembly_reads = fastp_reads
+    }
 
     //
     // MODULE: Run Meryl count
     //
+    // Counted from the decontaminated reads so the k-mer profile, the GenomeScope size
+    // estimate and the merqury QV all describe the same sequence as the assembly.
     
     MERYL_COUNT (
-        fastp_reads, // tuple val(meta), path(reads)
+        ch_assembly_reads, // tuple val(meta), path(reads)
         params.kvalue // val kvalue
     )
     ch_versions = ch_versions.mix(MERYL_COUNT.out.versions.first())
@@ -73,7 +112,13 @@ workflow GENOME_ASSEMBLY {
     )
     ch_versions = ch_versions.mix(GENOMESCOPE2.out.versions.first())
 
-    ch_coverage_calc = fastp_json.join(GENOMESCOPE2.out.summary, by:0)
+    // The meryl histogram goes in alongside the GenomeScope summary so the coverage
+    // step can tell a real genomic k-mer peak from an error shoulder, and refuse to
+    // grade coverage when GenomeScope had nothing to fit.
+    ch_coverage_calc = fastp_json
+        .join(GENOMESCOPE2.out.summary, by:0)
+        .join(GENOMESCOPE2.out.model, by:0)
+        .join(MERYL_HISTOGRAM.out.hist, by:0)
     
     //
     // MODULE: Calculate Sequencing Coverage
@@ -101,7 +146,7 @@ workflow GENOME_ASSEMBLY {
     //
 
     MEGAHIT (
-        fastp_reads // tuple val(meta), path(reads1), path(reads2)
+        ch_assembly_reads // tuple val(meta), path(reads1), path(reads2)
     )
     ch_versions = ch_versions.mix(MEGAHIT.out.versions.first())
 

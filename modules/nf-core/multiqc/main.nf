@@ -31,6 +31,9 @@ process MULTIQC {
     def logo = multiqc_logo ? "--cl-config 'custom_logo: \"${multiqc_logo}\"'" : ''
     def replace = replace_names ? "--replace-names ${replace_names}" : ''
     def samples = sample_names ? "--sample-names ${sample_names}" : ''
+    // Handed to the inline python below so the run-level tool-parameters table can
+    // normalise the run name out of each module's captured command line.
+    def run_name = params.run ?: ''
     """
     python <<'PY'
 from collections import OrderedDict
@@ -161,15 +164,31 @@ row_pattern = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
-tool_rows = []
+# Every module emits one row per sample, so the run-level report would otherwise
+# list the same command once for each of the ~80 genomes. Normalise the OG id and
+# the run name out of the captured command line, then collapse identical rows and
+# count how many samples each covers. A sample whose parameters genuinely differ
+# (a retry at higher memory, say) still gets its own row.
+sample_pattern = re.compile(r'OG[0-9]+')
+run_name = '${run_name}'
+
+
+def normalise_row_text(row_text):
+    normalised = sample_pattern.sub('&lt;sample&gt;', row_text)
+    if run_name:
+        normalised = normalised.replace(run_name, '&lt;run&gt;')
+    return normalised
+
+
+tool_rows = OrderedDict()
 for row_file in sorted(Path('.').rglob('*.tool_params_mqcrow.html')):
     match = row_pattern.search(row_file.read_text().strip())
     if not match:
         continue
 
     tool_html = match.group('tool').strip()
-    params_html = match.group('params').strip()
-    notes_html = match.group('notes').strip()
+    params_html = normalise_row_text(match.group('params').strip())
+    notes_html = normalise_row_text(match.group('notes').strip())
     tool_key = re.sub(r'[^a-z0-9]+', '', html.unescape(tool_html).lower())
 
     version_html = 'NA'
@@ -185,28 +204,35 @@ for row_file in sorted(Path('.').rglob('*.tool_params_mqcrow.html')):
             ]
             version_html = f"<samp>{'; '.join(formatted_versions)}</samp>"
 
-    tool_rows.append(
-        (
+    row_key = (tool_html, params_html, notes_html)
+    seen_row = tool_rows.get(row_key)
+    if seen_row is None:
+        tool_rows[row_key] = [
             tool_order.get(group_name, 999),
             html.unescape(tool_html).lower(),
-            f"<tr><td>{tool_html}</td><td>{version_html}</td><td>{params_html}</td><td>{notes_html}</td></tr>",
-        )
-    )
+            tool_html,
+            version_html,
+            params_html,
+            notes_html,
+            1,
+        ]
+    else:
+        seen_row[6] += 1
 
 if tool_rows:
     tool_params_lines = [
         "id: 'nf-core-oceangenomesdraftgenomes-tool-parameters'",
-        "description: 'Exact tool parameters captured from the module command scripts.'",
+        "description: 'Exact tool parameters captured from the module command scripts. Identical commands are collapsed to one row; the sample id and run name are shown as &lt;sample&gt; and &lt;run&gt;.'",
         "section_name: 'Tool Parameters Used'",
         "plot_type: 'html'",
         "data: |",
         '    <table class="table table-condensed">',
-        '    <thead><tr><th>Tool</th><th>Version</th><th>Effective Parameters</th><th>Notes</th></tr></thead>',
+        '    <thead><tr><th>Tool</th><th>Version</th><th>Samples</th><th>Effective Parameters</th><th>Notes</th></tr></thead>',
         "    <tbody>",
     ]
     tool_params_lines.extend(
-        f"    {row}"
-        for _order, _tool_name, row in sorted(tool_rows, key=lambda item: (item[0], item[1]))
+        f"    <tr><td>{entry[2]}</td><td>{entry[3]}</td><td>{entry[6]}</td><td>{entry[4]}</td><td>{entry[5]}</td></tr>"
+        for entry in sorted(tool_rows.values(), key=lambda item: (item[0], item[1]))
     )
     tool_params_lines.extend(["    </tbody>", "    </table>"])
     newline = chr(10)

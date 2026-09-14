@@ -178,7 +178,14 @@ workflow OCEANGENOMES_DRAFTGENOMES {
     }
 
     ch_assembly_with_taxon = ch_genome_assembly_results.map { meta, assembly_file ->
-        if (!meta.taxon_id) error "❗ taxon_id not found for sample ${meta.id}"
+        // Defence in depth. validateTaxonomy() in prepare_samplesheet stops the run
+        // long before this point, but this is the last thing between a placeholder
+        // and `--tax-id unknown` reaching FCS-GX, and a non-empty string is truthy:
+        // `!meta.taxon_id` alone waves 'unknown' straight through.
+        def taxon_id = meta.taxon_id?.toString()?.trim()
+        if (!taxon_id || taxon_id.equalsIgnoreCase('unknown') || taxon_id.equalsIgnoreCase('None')) {
+            error "❗ taxon_id not resolved for sample ${meta.id} (got '${meta.taxon_id}')"
+        }
         tuple(meta, assembly_file)
     }
     //

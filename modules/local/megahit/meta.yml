@@ -1,0 +1,85 @@
+name: megahit
+description: |
+  Assemble trimmed reads into draft contigs with MEGAHIT, keeping a resumable
+  checkpoint outside the work directory.
+
+  Adapted from nf-core/megahit and no longer tracking it: this version publishes a
+  single renamed contigs file, emits a tool_params row for MultiQC, and keeps its
+  checkpoint under ${params.outdir}/megahit_checkpoints so a failed assembly can
+  resume rather than start from zero.
+
+  Because that checkpoint sits outside the work directory, Nextflow's caching cannot
+  see it, and a checkpoint keyed on the sample alone would be reused even after its
+  inputs changed. Each checkpoint therefore carries a fingerprint of the reads, the
+  assembly arguments and the megahit version (bin/megahit_checkpoint_key.sh), and is
+  discarded when that fingerprint no longer matches. Resource flags are excluded from
+  the fingerprint so a retry at higher memory still resumes.
+keywords:
+  - megahit
+  - denovo
+  - assembly
+  - debruijn
+  - checkpoint
+tools:
+  - megahit:
+      description: "An ultra-fast single-node solution for large and complex metagenomics
+        assembly via succinct de Bruijn graph"
+      homepage: https://github.com/voutcn/megahit
+      documentation: https://github.com/voutcn/megahit
+      tool_dev_url: https://github.com/voutcn/megahit
+      doi: "10.1093/bioinformatics/btv033"
+      licence: ["GPL v3"]
+      args_id: "$args"
+      identifier: biotools:megahit
+input:
+  - - meta:
+        type: map
+        description: |
+          Groovy Map containing sample information, including the prefix used to name
+          the assembly and its checkpoint directory
+          e.g. [ id:'OG2630', prefix:'OG2630.ilmn.260909', single_end:false ]
+    - reads:
+        type: file
+        description: |
+          Trimmed reads as [ [R1...], [R2...] ], or [ [R1...] ] for single-end. These
+          are fingerprinted by basename and byte size to decide whether an existing
+          checkpoint is reusable.
+output:
+  - contigs:
+      - meta:
+          type: map
+          description: Groovy Map containing sample information
+      - "*.v129mh.fasta":
+          type: file
+          description: Final contigs of the assembly in FASTA format
+          pattern: "*.v129mh.fasta"
+  - checkpoint_status:
+      - meta:
+          type: map
+          description: Groovy Map containing sample information
+      - "*.megahit_checkpoint.txt":
+          type: file
+          description: |
+            Which checkpoint path the task took (fresh, continue, skip, adopted-*,
+            invalidated-*, resume-failed-rebuilt), the input fingerprint it used, the
+            fingerprint it found on disk, and whether the intermediate graph was
+            pruned. Without this the skip path is invisible: the trace shows MEGAHIT
+            running briefly and emitting contigs, with nothing to say whether they
+            were rebuilt.
+          pattern: "*.megahit_checkpoint.txt"
+  - tool_params:
+      - meta:
+          type: map
+          description: Groovy Map containing sample information
+      - "22_megahit.tool_params_mqcrow.html":
+          type: file
+          description: MultiQC table row recording the effective arguments and the
+            checkpoint decision
+          pattern: "22_megahit.tool_params_mqcrow.html"
+  - versions:
+      - versions.yml:
+          type: file
+          description: File containing software versions
+          pattern: "versions.yml"
+authors:
+  - "@jfy133"

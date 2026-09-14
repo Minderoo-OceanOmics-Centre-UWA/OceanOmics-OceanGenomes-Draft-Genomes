@@ -75,11 +75,6 @@
                         "git_sha": "8bc54984b57a02c8712d48274b90c1161bf2c996",
                         "installed_by": ["modules"]
                     },
-                    "megahit": {
-                        "branch": "master",
-                        "git_sha": "05954dab2ff481bcb999f24455da29a5828af08d",
-                        "installed_by": ["modules"]
-                    },
                     "merqury/merqury": {
                         "branch": "master",
                         "git_sha": "05954dab2ff481bcb999f24455da29a5828af08d",
@@ -161,7 +156,7 @@
                         "branch": "master",
                         "git_sha": "",
                         "installed_by": ["local"]
-                    },
+                    }
                 }
             },
             "subworkflows": {
@@ -227,7 +222,7 @@
                         "branch": "master",
                         "git_sha": "",
                         "installed_by": ["local"]
-                    },
+                    }
                 }
             }
         }

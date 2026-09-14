@@ -75,10 +75,29 @@ K-mer histograms are generated with meryl and modelled by GenomeScope2 to estima
 
 - `draftgenomes/<sample>/assemblies/genome/`
   - MEGAHIT contigs (`*.contigs.fa`) and reformatted FASTA files.
+  - `*.megahit_checkpoint.txt` - which checkpoint path the assembly took, and the input fingerprint it used.
+- `megahit_checkpoints/<prefix>_megahit_out/` and `<prefix>_megahit_out.key`
+  - The resumable checkpoint itself, and the fingerprint of the inputs it was built from.
 
 </details>
 
 MEGAHIT assembles the trimmed reads into draft contigs that are passed to decontamination and QC.
+
+Assembly is checkpointed outside the work directory so that a task killed part way
+through (an OOM, a walltime) resumes rather than starting over. That puts the checkpoint
+beyond Nextflow's caching, so it carries a fingerprint of its inputs: the reads (by name
+and size), the assembly arguments and the megahit version. A checkpoint whose fingerprint
+no longer matches is rebuilt rather than reused, which is what stops a change upstream of
+assembly, enabling kraken2 for instance, from silently republishing the previous
+assembly. Memory and thread counts are excluded from the fingerprint, so a retry at
+higher memory still resumes.
+
+`--megahit_checkpoint_unkeyed` decides what happens to checkpoints written before
+fingerprinting existed (`invalidate`, the default, or `adopt`), `--megahit_stale_checkpoint`
+what happens when a fingerprint no longer matches (`rerun`, `archive` or `fail`), and
+`--megahit_checkpoint_cleanup` whether the intermediate assembly graph is pruned once a
+checkpoint completes. `*.megahit_checkpoint.txt` records which path each task took, so
+whether an assembly was actually rebuilt is a file to read rather than an inference.
 
 ### Decontamination (FCS-GX / Tiara / BBMap)
 

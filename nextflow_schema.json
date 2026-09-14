@@ -63,6 +63,41 @@
                     "description": "Optional GenomeScope2 -l flag value; use false to disable.",
                     "default": false
                 },
+                "genomescope2_m": {
+                    "type": "integer",
+                    "description": "GenomeScope2 -m/--max_kmercov: k-mers above this coverage are excluded from the model fit. Raise for repeat-rich genomes whose k-mer mass sits above 1000x.",
+                    "default": 10000,
+                    "minimum": 100
+                },
+                "tiara_min_len": {
+                    "type": "integer",
+                    "description": "tiara --min_len. Contigs shorter than this are not classified. tiara's own default of 3000 leaves most of a fragmented short-read assembly unscreened.",
+                    "default": 1000,
+                    "minimum": 500
+                },
+                "fcs_review_action": {
+                    "type": "string",
+                    "enum": [
+                        "exclude",
+                        "short-only",
+                        "keep"
+                    ],
+                    "description": "How to treat contigs FCS-GX marks REVIEW: exclude removes all of them, short-only removes only those <= 1000 bp (pre-Sept-2026 behaviour), keep retains them all.",
+                    "default": "exclude"
+                },
+                "genomescope_min_model_fit": {
+                    "type": "number",
+                    "description": "Minimum GenomeScope Model Fit (lower bound, percent) below which the genome size estimate is flagged unreliable and coverage is not graded.",
+                    "default": 50,
+                    "minimum": 0,
+                    "maximum": 100
+                },
+                "genomescope_max_peak_kmercov_ratio": {
+                    "type": "number",
+                    "description": "How far the observed k-mer histogram mode may sit from GenomeScope's fitted kmercov before the size estimate is flagged. A mode at 1x or 2x kmercov is normal.",
+                    "default": 3,
+                    "minimum": 1
+                },
                 "bs_config": {
                     "type": "string",
                     "format": "file-path",
@@ -79,9 +114,52 @@
                     "type": "string",
                     "description": "Path to FCS-GX database."
                 },
+                "taxonkit_db_dir": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "description": "Directory holding (or to cache) the NCBI taxdump. Used to resolve taxon_id/class for samples the curated species table does not carry. Without it, unmatched samples abort the run."
+                },
                 "ramdisk_path": {
                     "type": "string",
                     "description": "Path to RAM disk directory for FCS-GX."
+                },
+                "kraken2_db": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "exists": true,
+                    "description": "Path to a kraken2 database directory (must contain hash.k2d, opts.k2d and taxo.k2d) used for read-level decontamination before assembly."
+                },
+                "kraken2_confidence": {
+                    "type": "number",
+                    "description": "kraken2 --confidence threshold. The kraken2 default of 0 assigns a read on a single k-mer hit, which discards real host sequence for taxa with poor reference coverage.",
+                    "default": 0.05,
+                    "minimum": 0,
+                    "maximum": 1
+                },
+                "kraken2_exclude_taxids": {
+                    "type": "string",
+                    "description": "Space-separated NCBI taxids whose reads (and descendants) are removed before assembly. Default is Bacteria, Archaea and Viruses.",
+                    "default": "2 2157 10239"
+                },
+                "megahit_checkpoint_unkeyed": {
+                    "type": "string",
+                    "default": "invalidate",
+                    "enum": ["invalidate", "adopt"],
+                    "description": "What to do with a MEGAHIT checkpoint written before checkpoint fingerprinting existed.",
+                    "help_text": "MEGAHIT checkpoints live outside the work directory so a failed assembly can resume, which means Nextflow cannot tell whether one matches the current inputs. Checkpoints are now fingerprinted; ones written earlier carry no fingerprint and their inputs are unknowable. 'invalidate' discards and reassembles them. 'adopt' claims them for the current inputs, which is only safe when you know the reads and assembly arguments have not changed."
+                },
+                "megahit_stale_checkpoint": {
+                    "type": "string",
+                    "default": "rerun",
+                    "enum": ["rerun", "archive", "fail"],
+                    "description": "What to do with a MEGAHIT checkpoint whose input fingerprint no longer matches.",
+                    "help_text": "'rerun' discards it and reassembles. 'archive' moves it to <dir>.stale.<timestamp> first, which preserves it for forensics at the cost of a second copy of the intermediate graph. 'fail' stops the task, for runs where an unexpected reassembly is worse than a crash."
+                },
+                "megahit_checkpoint_cleanup": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Prune the intermediate assembly graph from a MEGAHIT checkpoint once it completes.",
+                    "help_text": "A completed checkpoint can never be continued, so its intermediate contigs and temporary files are dead weight, tens of GB per sample retained under the output directory. Pruning leaves the resume-skip path fully working."
                 },
                 "busco_acti_db": {
                     "type": "string",
@@ -100,6 +178,30 @@
                     "format": "directory-path",
                     "exists": true,
                     "description": "Path to BUSCO Metazoa database, used for invertebrates."
+                },
+                "busco_crustacea_db": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "exists": true,
+                    "description": "Path to BUSCO crustacea_odb12 database, used for Malacostraca, Thecostraca, Branchiopoda, Copepoda and Ostracoda."
+                },
+                "busco_mollusca_db": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "exists": true,
+                    "description": "Path to BUSCO mollusca_odb12 database, used for Gastropoda, Bivalvia, Polyplacophora, Cephalopoda, Scaphopoda and Monoplacophora."
+                },
+                "busco_anthozoa_db": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "exists": true,
+                    "description": "Path to BUSCO anthozoa_odb12 database, used for Anthozoa."
+                },
+                "busco_arthropoda_db": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "exists": true,
+                    "description": "Path to BUSCO arthropoda_odb12 database, used for arthropod classes with no narrower lineage (Pycnogonida, Merostomata, Chilopoda, Diplopoda)."
                 },
                 "mitogenome_nfcore_dir": {
                     "type": "string",
@@ -156,6 +258,11 @@
                 "skip_genome_assembly": {
                     "type": "boolean",
                     "description": "Skip genome assembly subworkflow.",
+                    "default": false
+                },
+                "skip_kraken2_decontamination": {
+                    "type": "boolean",
+                    "description": "Skip kraken2 read-level decontamination and assemble the fastp reads directly.",
                     "default": false
                 },
                 "skip_genome_decontamination": {

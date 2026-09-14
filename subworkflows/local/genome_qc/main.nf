@@ -103,16 +103,26 @@ workflow GENOME_QC {
     
     // Determining which BUSCO database to use based on meta.class.
     // Ray-finned fish get the actinopterygii db, other vertebrates get the vertebrata db,
-    // and everything else (invertebrates) falls back to the metazoa db. To route a new
-    // class, add its name to one of the two lists below; anything unlisted is treated as
-    // an invertebrate, which is the safe default now that we run more inverts than fish.
+    // and the invertebrate classes below get their own odb12 lineage. Anything unlisted
+    // falls back to the metazoa db, which is the safe default now that we run more
+    // inverts than fish. To route a new class, add its name to one of the lists.
     // Note: Ascidiacea (tunicates) is deliberately absent from ACTI/VERT - it is a
     // chordate but not a vertebrate, so it correctly falls through to metazoa.
+    //
+    // There is no echinoderm or sponge lineage in odb12, so Asteroidea, Ophiuroidea,
+    // Demospongiae, Hexactinellida and Porifera stay on metazoa by necessity, not by
+    // oversight. Do not add them to a list expecting a narrower dataset to exist.
     def BUSCO_ACTI_CLASSES = ['Actinopteri', 'Actinopterygii', 'Teleostei']
     def BUSCO_VERT_CLASSES = [
         'Chondrichthyes', 'Mammalia', 'Aves', 'Reptilia', 'Amphibia',
         'Myxini', 'Hyperoartia', 'Coelacanthimorpha', 'Dipneusti', 'Lepidosauria', 'Testudines'
     ]
+    def BUSCO_CRUSTACEA_CLASSES = ['Malacostraca', 'Thecostraca', 'Branchiopoda', 'Copepoda', 'Ostracoda', 'Maxillopoda']
+    def BUSCO_MOLLUSCA_CLASSES = ['Gastropoda', 'Bivalvia', 'Polyplacophora', 'Cephalopoda', 'Scaphopoda', 'Monoplacophora']
+    def BUSCO_ANTHOZOA_CLASSES = ['Anthozoa']
+    // Arthropod classes with no narrower odb12 lineage of their own. Insecta and the
+    // arachnids have dedicated datasets, so they are not routed here.
+    def BUSCO_ARTHROPODA_CLASSES = ['Pycnogonida', 'Merostomata', 'Chilopoda', 'Diplopoda', 'Symphyla', 'Pauropoda']
 
     ch_with_busco_db = assembly.map { meta, file ->
         if ( !meta.class || meta.class.toString().toLowerCase() == 'unknown' ) {
@@ -123,11 +133,21 @@ workflow GENOME_QC {
             )
         }
 
+        // Narrower lineages are tested first: Malacostraca must reach crustacea rather
+        // than the broader arthropoda fallback.
         def busco_db
         if ( meta.class in BUSCO_ACTI_CLASSES ) {
             busco_db = params.busco_acti_db
         } else if ( meta.class in BUSCO_VERT_CLASSES ) {
             busco_db = params.busco_vert_db
+        } else if ( meta.class in BUSCO_CRUSTACEA_CLASSES && params.busco_crustacea_db ) {
+            busco_db = params.busco_crustacea_db
+        } else if ( meta.class in BUSCO_MOLLUSCA_CLASSES && params.busco_mollusca_db ) {
+            busco_db = params.busco_mollusca_db
+        } else if ( meta.class in BUSCO_ANTHOZOA_CLASSES && params.busco_anthozoa_db ) {
+            busco_db = params.busco_anthozoa_db
+        } else if ( meta.class in BUSCO_ARTHROPODA_CLASSES && params.busco_arthropoda_db ) {
+            busco_db = params.busco_arthropoda_db
         } else {
             busco_db = params.busco_metazoa_db
         }

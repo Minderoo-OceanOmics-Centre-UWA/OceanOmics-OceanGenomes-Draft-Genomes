@@ -1,0 +1,3 @@
+sample,run,date,prefix,nom_species_id,taxon_id,class,fastq_1,fastq_2
+OG2625,NOVA_260909_LA,260909,OG2625.ilmn.260909,Ophiuroidea (Class),7618,Ophiuroidea,/scratch/pawsey1348/tpeirce/NOVA_260909_LA/pooled/NOVA_260909_LA/OG2625.ilmn.NOVA_260909_LA.R1.fq.gz,/scratch/pawsey1348/tpeirce/NOVA_260909_LA/pooled/NOVA_260909_LA/OG2625.ilmn.NOVA_260909_LA.R2.fq.gz
+OG3036,NOVA_260909_LA,260909,OG3036.ilmn.260909,Chiton,256107,Polyplacophora,/scratch/pawsey1348/tpeirce/NOVA_260909_LA/pooled/NOVA_260909_LA/OG3036.ilmn.NOVA_260909_LA.R1.fq.gz,/scratch/pawsey1348/tpeirce/NOVA_260909_LA/pooled/NOVA_260909_LA/OG3036.ilmn.NOVA_260909_LA.R2.fq.gz

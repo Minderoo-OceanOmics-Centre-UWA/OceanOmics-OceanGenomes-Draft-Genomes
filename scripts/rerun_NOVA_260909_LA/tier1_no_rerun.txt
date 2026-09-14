@@ -1,0 +1,35 @@
+NOVA_260909_LA -- samples that should NOT be re-run
+===================================================
+
+These libraries cannot be rescued by re-running the pipeline. They need new material or
+a sample-identity check, not more compute.
+
+FAILED LIBRARIES (request resequencing)
+
+OG2639  Farrea sp. (Hexactinellida)
+        9.4 Mb assembly, BUSCO C:0.9%, 62% of k-mer mass in a single 3000-5000x peak.
+        GenomeScope reported a "98.3% fit" on a 1.6 Mb genome at kmercov 422, i.e. it
+        modelled one high-copy organism. FCS-GX inferred archaea as the primary
+        division. This is not a sponge genome.
+
+OG2959  Porifera
+        84 Mb assembly, BUSCO C:3.3%, kmercov 436, ~95% of the assembly flagged by
+        FCS-GX as EXCLUDE or REVIEW.
+
+OG2653  Acanthella (Demospongiae)
+        GenomeScope returned Model Fit 0% and heterozygosity -100%, i.e. total model
+        failure. K-mer peak sits at 500-630x.
+
+OG3080  crustacean, taxid 1124584 (Malacostraca)
+        8.9 Mb assembly, BUSCO C:0.0%, 79% of k-mer mass above 1000x. FCS-GX inferred
+        anml:fishes as the primary division against an asserted anml:crustaceans.
+        Consistent with a failed extraction or a sample swap; check the identity before
+        spending any sequencing on it.
+
+CHECK IDENTITY BEFORE RE-RUNNING
+
+OG3009  labelled Actinopteri
+        BUSCO C:1.4% on a 1.3 Gb assembly at N50 1335, while all nine other fishes in
+        this run are the best samples in it. FCS-GX inferred anml:insects against an
+        asserted anml:fishes. Resolve the label/sample question first; if it turns out
+        to be correct, it belongs in tier 5.

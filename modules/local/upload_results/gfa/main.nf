@@ -1,6 +1,6 @@
 process PUSH_GFA_RESULTS {
     tag "$meta.id"
-    label 'process_medium'
+    label 'process_upload'
     conda "${moduleDir}/environment.yml"
     container "${ workflow.containerEngine == 'singularity' && !task.ext.singularity_pull_docker_container ?
         'docker://tylerpeirce/psycopg2:0.1' :

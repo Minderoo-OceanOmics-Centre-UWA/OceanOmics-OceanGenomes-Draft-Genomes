@@ -9,7 +9,7 @@ process CALCULATE_SEQUENCING_COVERAGE {
         'quay.io/biocontainers/python:3.9' }"
 
     input:
-    tuple val(meta), path(fastp_json), path(genomescope_summary)
+    tuple val(meta), path(fastp_json), path(genomescope_summary), path(genomescope_model), path(meryl_hist)
 
     output:
     tuple val(meta), path("*_sequencing_coverage.txt"), emit: coverage_report
@@ -62,12 +62,12 @@ with open("${genomescope_summary}", 'r') as f:
                 estimated_genome_size = genome_size_max
         elif re.match(r"^Heterozyg(?:osity|ous)", line, flags=re.I):
             # Handles "Heterozygosity" or "Heterozygous (ab)"
-            het_matches = re.findall(r'([0-9.]+)%', line)
+            het_matches = re.findall(r'(-?[0-9.]+)%', line)
             if het_matches:
                 heterozygosity_min = float(het_matches[0])
                 heterozygosity_max = float(het_matches[-1])
         elif line.startswith('Model Fit'):
-            fit_matches = re.findall(r'([0-9.]+)%', line)
+            fit_matches = re.findall(r'(-?[0-9.]+)%', line)
             if fit_matches:
                 model_fit_min = float(fit_matches[0])
                 model_fit_max = float(fit_matches[-1])
@@ -81,6 +81,97 @@ bases_removed = total_bases_before - total_bases_after
 reads_removed = total_reads_before - total_reads_after
 filtering_efficiency = (bases_removed / total_bases_before * 100) if total_bases_before > 0 else 0
 data_retention = total_bases_after / total_bases_before * 100 if total_bases_before > 0 else 0
+
+# --- GenomeScope reliability gate -------------------------------------------
+#
+# Every metric below this point divides by estimated_genome_size, so a bad
+# GenomeScope fit silently turns into a confident-looking coverage verdict. On
+# NOVA_260909_LA, OG2617 was published as "EXCELLENT / suitable for high-quality
+# genome assembly" at a 48% model fit whose kmercov was 17.9 against a claimed 67x.
+# Detect the failure modes and refuse to grade coverage when any of them fire.
+genome_size_flags = []
+
+if model_fit_min and model_fit_max and model_fit_min > model_fit_max:
+    # The two model solutions swapped; the bounds are meaningless.
+    genome_size_flags.append("inverted_model_fit_bounds")
+
+if model_fit_min and model_fit_min < ${params.genomescope_min_model_fit}:
+    genome_size_flags.append("model_fit_below_${params.genomescope_min_model_fit}pc")
+
+if heterozygosity_max <= 0 or heterozygosity_max > 100:
+    # 0% means the model collapsed onto a single solution; negative means it failed
+    # outright (GenomeScope reports -100%).
+    genome_size_flags.append("implausible_heterozygosity")
+
+if estimated_genome_size <= 0:
+    genome_size_flags.append("no_genome_size_estimate")
+
+if model_fit_min and model_fit_max and model_fit_min == model_fit_max and model_fit_min > 0:
+    # GenomeScope collapsed onto a single solution instead of a min/max pair. On this
+    # run that meant it had locked onto a high-copy contaminant (OG2639 reported a
+    # "98.3% fit" on a 1.6 Mb genome at kmercov 422).
+    genome_size_flags.append("degenerate_model_fit")
+
+# Does the coverage GenomeScope fitted correspond to an actual mode in the k-mer
+# histogram? An Illumina histogram falls from cov=1 (errors), troughs, then rises into
+# the genomic peak. If the tallest mode above that trough sits nowhere near the fitted
+# kmercov, GenomeScope fitted something that is not the genome -- typically the
+# high-coverage repeat/symbiont plateau that dominates repeat-rich invertebrate
+# libraries. A mode at 1x or 2x kmercov is expected (homozygous vs heterozygous peak),
+# so only disagreement beyond that is a problem.
+kmercov = 0.0
+try:
+    with open("${genomescope_model}", 'r') as mf:
+        for mline in mf:
+            if mline.startswith('kmercov'):
+                kmercov = float(mline.split()[1])
+                break
+except (OSError, ValueError, IndexError):
+    pass
+
+peak_coverage = 0
+try:
+    hist = {}
+    with open("${meryl_hist}", 'r') as hf:
+        for hline in hf:
+            parts = hline.split()
+            if len(parts) < 2:
+                continue
+            try:
+                cov = int(parts[0])
+                count = int(parts[1])
+            except ValueError:
+                continue
+            if 1 <= cov <= ${params.genomescope2_m}:
+                hist[cov] = count
+
+    covs = sorted(hist)
+    if len(covs) >= 10:
+        trough_cov, trough_count = covs[0], hist[covs[0]]
+        for cov in covs:
+            if hist[cov] <= trough_count:
+                trough_cov, trough_count = cov, hist[cov]
+            elif hist[cov] > trough_count * 2:
+                break
+        best_count = 0
+        for cov in covs:
+            if cov > trough_cov and hist[cov] > best_count:
+                best_count, peak_coverage = hist[cov], cov
+        if trough_count == 0 or best_count < trough_count * 2:
+            peak_coverage = 0
+    hist_readable = True
+except OSError:
+    hist_readable = False
+    genome_size_flags.append("meryl_histogram_unreadable")
+
+if not hist_readable:
+    pass
+elif peak_coverage == 0:
+    genome_size_flags.append("no_kmer_peak")
+elif kmercov > 0 and peak_coverage / kmercov > ${params.genomescope_max_peak_kmercov_ratio}:
+    genome_size_flags.append("kmer_peak_disagrees_with_fitted_coverage")
+
+genome_size_reliable = not genome_size_flags
 
 if coverage_after >= 50:
     coverage_status = "EXCELLENT"
@@ -97,6 +188,16 @@ elif coverage_after >= 10:
 else:
     coverage_status = "INSUFFICIENT"
     coverage_recommendation = "Additional sequencing is strongly recommended."
+
+if not genome_size_reliable:
+    # Keep the computed numbers -- they are still the best available -- but do not
+    # present them as a coverage grade.
+    coverage_status = "UNRELIABLE_GENOME_SIZE_ESTIMATE"
+    coverage_recommendation = (
+        "GenomeScope could not fit this sample (" + ", ".join(genome_size_flags) + "), so the "
+        "genome size estimate and every coverage figure derived from it are unreliable. "
+        "Assess coverage against the decontaminated assembly size instead."
+    )
 
 # Write detailed report
 with open("${prefix}_sequencing_coverage.txt", 'w') as f:
@@ -131,6 +232,13 @@ with open("${prefix}_sequencing_coverage.txt", 'w') as f:
     f.write(f"  Bases removed: {bases_removed:,} ({filtering_efficiency:.1f}%)\\n")
     f.write(f"  Data retention: {data_retention:.1f}%\\n\\n")
     
+    f.write(f"  K-mer peak coverage: {peak_coverage}x\\n" if peak_coverage else "  K-mer peak coverage: none detected\\n")
+    f.write(f"  Fitted k-mer coverage (GenomeScope kmercov): {kmercov:.1f}x\\n" if kmercov else "  Fitted k-mer coverage: NA\\n")
+    f.write(f"  Genome size estimate reliable: {'yes' if genome_size_reliable else 'no'}\\n")
+    if genome_size_flags:
+        f.write(f"  Genome size warnings: {', '.join(genome_size_flags)}\\n")
+    f.write("\\n")
+
     f.write("COVERAGE ASSESSMENT:\\n")
     f.write(f"  Status: {coverage_status} coverage ({coverage_after:.1f}x)\\n")
     f.write(f"  Recommendation: {coverage_recommendation}\\n")
@@ -152,7 +260,11 @@ summary_data = {
     "filtering_efficiency": filtering_efficiency,
     "data_retention_percent": data_retention,
     "coverage_status": coverage_status,
-    "coverage_recommendation": coverage_recommendation
+    "coverage_recommendation": coverage_recommendation,
+    "genome_size_reliable": genome_size_reliable,
+    "genome_size_flags": "; ".join(genome_size_flags),
+    "kmer_peak_coverage": peak_coverage,
+    "fitted_kmer_coverage": kmercov
 }
 
 with open("${prefix}_coverage_summary.json", 'w') as f:
@@ -170,6 +282,10 @@ coverage_rows = [
     ("Bases after filtering", f"{total_bases_after:,} bp"),
     ("Filtering efficiency", f"{filtering_efficiency:.1f}%"),
     ("Data retention", f"{data_retention:.1f}%"),
+    ("K-mer peak coverage", f"{peak_coverage}x" if peak_coverage else "none detected"),
+    ("Fitted k-mer coverage", f"{kmercov:.1f}x" if kmercov else "NA"),
+    ("Genome size estimate reliable", "yes" if genome_size_reliable else "no"),
+    ("Genome size warnings", ", ".join(genome_size_flags) if genome_size_flags else "none"),
     ("Coverage assessment", f"{coverage_status} ({coverage_after:.1f}x)"),
     ("Recommendation", coverage_recommendation),
 ]

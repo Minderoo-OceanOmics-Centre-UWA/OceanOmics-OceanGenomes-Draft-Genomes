@@ -90,7 +90,12 @@ workflow NFCORE_OCEANGENOMES_DRAFTGENOMES {
     PREPARE_SAMPLESHEET(
         params.input,
         ch_download_reads_results,
-        "${run_id}_samplesheet"            
+        // Just the run id: the subworkflow appends '_samplesheet.csv' to build the
+        // path it looks for, and CREATE_SAMPLESHEET publishes '<run>_samplesheet.csv'.
+        // Passing "${run_id}_samplesheet" made it hunt for
+        // '<run>_samplesheet_samplesheet.csv', so an existing sheet was never found
+        // and a re-run silently regenerated over a hand-corrected one.
+        run_id
     )
     // samplesheetHybrid.out.samplesheet_file.view { file_path -> "📄 Samplesheet CSV written to: ${file_path}" }
     ch_samplesheet = PREPARE_SAMPLESHEET.out.samplesheet // tuple(meta, reads) meta: id, run, date, prefix

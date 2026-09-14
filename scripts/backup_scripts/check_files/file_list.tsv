@@ -30,7 +30,7 @@ Files
         $OGdir/assemblies/genome/NCBI/$OG*.contam.fasta
         $OGdir/assemblies/genome/NCBI/$OG.ilmn.*.contig_count_500bp.txt
         $OGdir/assemblies/genome/NCBI/$OG.ilmn.*.filter_report.txt
-        $OGdir/assemblies/genome/NCBI/$OG.ilmn.*.review_scaffolds_1kb.txt
+        $OGdir/assemblies/genome/NCBI/$OG.ilmn.*.review_scaffolds.txt
         $OGdir/assemblies/genome/NCBI/*.fcs_gx_report.txt
         $OGdir/assemblies/genome/NCBI/*.taxonomy.rpt
         $OGdir/assemblies/genome/NCBI/*.summary.txt

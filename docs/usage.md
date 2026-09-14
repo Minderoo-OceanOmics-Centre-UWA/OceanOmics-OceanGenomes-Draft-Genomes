@@ -75,12 +75,73 @@ selection block in `subworkflows/local/genome_qc/main.nf`; adding a class is a o
 there.
 
 A sample whose `class` is `unknown` (or empty) aborts the run rather than being guessed at.
-That means its species is missing from the `species` table: load it with
-`scripts/taxonomy/load_taxonomy.py` (see below) and regenerate the samplesheet.
-`bin/create_samplesheet.py` applies the same rule, and refuses to write a samplesheet at all
-if any sample's taxonomy cannot be resolved.
+
+The samplesheet is still written and published in that case. `bin/create_samplesheet.py`
+marks the offending rows `unknown` and exits successfully, so the sheet and its
+`taxonomy_resolution.tsv` land in `<outdir>/samplesheet/` where you can see them; the run is
+then stopped by the pipeline before any assembly task is submitted. Nothing is assembled and
+no SUs are spent until the rows are fixed. (The stop has to happen at that point rather than
+in the script: an `unknown` reaching FCS-GX as `--tax-id unknown` fails only after MEGAHIT
+has already run.)
+
+To fix, either correct the `nominal_species_id` in the `sample` table and delete the
+published samplesheet so it is regenerated, or edit the `taxon_id` and `class` columns in the
+published samplesheet directly and re-run. A published samplesheet is reused automatically on
+the next run, so an edited one is picked up without needing `--input`.
+
+### Resuming a run that already has MEGAHIT checkpoints
+
+MEGAHIT keeps a resumable checkpoint per sample under `<outdir>/megahit_checkpoints` so a
+task killed by an OOM or a walltime does not start over. Each one now carries a
+fingerprint of the reads, assembly arguments and megahit version it was built from, and a
+checkpoint whose fingerprint no longer matches is rebuilt rather than reused. That is what
+stops a change upstream of assembly, enabling kraken2 for example, from silently
+republishing the previous assembly with every downstream metric describing it.
+
+Checkpoints written before fingerprinting existed carry no fingerprint, and their inputs
+cannot be known. The default `--megahit_checkpoint_unkeyed invalidate` discards them and
+reassembles, which is the safe reading but costs a full reassembly. **On the first resume
+of a run whose reads have not changed, pass `--megahit_checkpoint_unkeyed adopt`** to claim
+those checkpoints instead. That is an assertion, so only make it when nothing upstream of
+assembly has changed. After that first pass every checkpoint is fingerprinted and the flag
+stops mattering.
+
+`<prefix>.megahit_checkpoint.txt` in each sample's assembly directory records which path
+the task took, so whether an assembly was rebuilt is something to read rather than infer.
+
+### Where taxonomy comes from
+
+`taxon_id` and `class` are resolved in two steps, and the per-sample outcome is recorded in
+`taxonomy_resolution.tsv`, published next to the samplesheet:
+
+| `source` | meaning |
+| --- | --- |
+| `db` | the curated `species` table had the answer |
+| `db+taxdump` | the table had part of it, the taxdump filled the rest |
+| `taxdump` | the table had no row; resolved entirely from NCBI |
+| `unresolved` | neither source knew the name -- the run aborts on these |
+
+The curated table is authoritative and always tried first. It only holds taxa someone has
+loaded, though, and the invertebrate runs draw from most of Metazoa, so pass
+`--taxonkit_db_dir <dir>` to enable the NCBI taxdump fallback. The dump is downloaded once
+and cached there with `storeDir`; point it at the same directory the mitogenome pipeline
+uses and the two share one copy. Without the flag, any sample the `species` table does not
+carry aborts the run, which is the pre-fallback behaviour.
+
+The fallback matches the `nominal_species_id` against NCBI scientific names at any rank
+within Metazoa, so genus, family, order and class names all resolve, as do the
+`Asteroidea (Class)` style values the collection records. Where NCBI has no class rank for a
+lineage (e.g. Porifera), the phylum is used as the class, matching what
+`scripts/taxonomy/load_taxonomy.py` writes into `species.class`.
+
+What it cannot rescue is a name that is not a taxon at all -- a misspelling (`Actinaria` for
+`Actiniaria`) or a placeholder (`Larval fish`). Those are listed by the failing step and need
+the `nominal_species_id` corrected in the `sample` table.
 
 ### Loading taxonomy for new clades
+
+Still the right tool when the name is correct and you want it curated permanently, and the
+only option if you are running without `--taxonkit_db_dir`.
 
 `scripts/taxonomy/load_taxonomy.py` bulk-loads NCBI species-rank taxa into the `species`
 table from the NCBI `new_taxdump`. Target one or more classes and/or phyla:
