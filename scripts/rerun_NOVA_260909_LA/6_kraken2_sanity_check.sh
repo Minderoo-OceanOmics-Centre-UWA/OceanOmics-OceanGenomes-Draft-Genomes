@@ -21,7 +21,11 @@ OUT="/scratch/pawsey1348/$USER/${RUN}"
 DB="/scratch/references/kraken2/pluspfp_20230605"
 CONF="${KRAKEN2_CONFIDENCE:-0.05}"
 WORK="${OUT}/kraken2_sanity"
-CONTAINER="community.wave.seqera.io/library/kraken2_coreutils_pigz:920ecc6b96e2ba71"
+# The same image the KRAKEN2_KRAKEN2 module uses, taken from the pipeline's shared
+# nextflow singularity cache. Do not put the https:// URL here: SINGULARITY_CACHEDIR
+# points at pawsey0964, which is over its group quota, so the download fails only at
+# close() and leaves a 0-byte file that then reports "image format not recognized".
+CONTAINER="${KRAKEN2_SIF:-/software/projects/pawsey1348/singularity/nextflow_cache/community-cr-prod.seqera.io-docker-registry-v2-blobs-sha256-0f-0f827dcea51be6b5c32255167caa2dfb65607caecdc8b067abd6b71c267e2e82-data.img}"
 
 for f in hash.k2d opts.k2d taxo.k2d; do
     if [ ! -f "$DB/$f" ]; then
@@ -44,7 +48,11 @@ for S in OG2630 OG2941; do
     echo "=============================================================="
     echo " kraken2 sanity check: $S  (--confidence $CONF)"
     echo "=============================================================="
-    srun --account=pawsey0964 --partition=work --cpus-per-task=16 --mem=230G --time=02:00:00 \
+    # highmem, not work. hash.k2d is 147.5 GiB and kraken2 reads it into anonymous
+    # memory, so on a 245000 MB work node the 230G cgroup has no headroom left for the
+    # Lustre page cache of the same 158 GB file and the job gets OOM-killed. This is the
+    # tier conf/base.config already retries KRAKEN2_KRAKEN2 on.
+    srun --account=pawsey0964 --partition=highmem --cpus-per-task=16 --mem=460G --time=04:00:00 \
       singularity exec "$CONTAINER" \
         kraken2 --db "$DB" --threads 16 --gzip-compressed --paired \
                 --confidence "$CONF" \

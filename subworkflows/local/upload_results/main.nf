@@ -33,6 +33,7 @@ workflow UPLOAD_RESULTS {
     take:
     fastp_json // from FASTP_FASTQC.out.json - fastp workflow
     genomescope_summary // from GENOMESCOPE2.out.summary - assembly workflow
+    coverage_summary // from RECHECK_GENOME_SIZE.out.coverage_json - genome qc workflow
     filter_report // from BBMAP_FILTERBYNAME.out.filter_report - decontamination workflow
     contigs_under_500bp // from BBMAP_FILTERBYNAME.out.contigs_under_500bp - decontamination workflow
     tiara_filter_summary // from TIARA_TIARA.out.summary - decontamination workflow
@@ -60,8 +61,24 @@ workflow UPLOAD_RESULTS {
     // MODULE: Assembly results upload to SQL database
     //
 
+    // The coverage summary rides along so the row carries the reliability verdict, not
+    // just the numbers: genomesize reads the same whether the fit was trustworthy or not.
+    //
+    // Joined on meta.id rather than `by: 0`, which compares whole meta maps. These two
+    // channels come from opposite sides of decontamination, and GENOME_DECONTAMINATION adds
+    // assembly_prefix to the meta, so the maps are never equal: genomescope_summary is from
+    // GENOME_ASSEMBLY (before decon), while coverage_summary comes from RECHECK_GENOME_SIZE
+    // in GENOME_QC (after it, and with the metas of its three inputs merged). `by: 0`
+    // silently matched nothing, so no assembly row reached the database for any tier of the
+    // NOVA_260909_LA re-run. It worked before RECHECK_GENOME_SIZE existed only because the
+    // summary then came from CALCULATE_SEQUENCING_COVERAGE, which also runs pre-decon.
+    ch_assembly_upload = genomescope_summary
+        .map { meta, summary -> [meta.id, meta, summary] }
+        .join(coverage_summary.map { meta, json -> [meta.id, json] })
+        .map { _id, meta, summary, json -> [meta, summary, json] }
+
     PUSH_ASSEMBLY_RESULTS (
-        genomescope_summary, // tuple val(meta), path(blast_filtered), path(lca_filtered)
+        ch_assembly_upload, // tuple val(meta), path(genomescope_summary), path(coverage_summary)
         sql_config // params.sql_config
     )
 

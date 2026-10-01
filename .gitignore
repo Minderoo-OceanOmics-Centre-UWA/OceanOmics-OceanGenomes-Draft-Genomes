@@ -22,3 +22,4 @@ scripts/backup_scripts/check_files/FileCheck*
 scripts/backup_scripts/check_files/_FileCheck*
 scripts/backup_scripts/configfile.txt
 results-test/
+scripts/rerun_NOVA_260909_LA

@@ -7,7 +7,7 @@ process PUSH_ASSEMBLY_RESULTS {
         'tylerpeirce/psycopg2:0.1' }"
 
     input:
-    tuple val(meta), path(genomescope_summary)
+    tuple val(meta), path(genomescope_summary), path(coverage_summary)
     path config
 
     output:
@@ -20,6 +20,7 @@ process PUSH_ASSEMBLY_RESULTS {
     push_assembly_results_to_sqldb.py \\
         -c $config \\
         -f ${genomescope_summary} \\
+        -v ${coverage_summary} \\
         > ${meta.id}.assembly.upload.txt 
 
     cat <<-END_VERSIONS > versions.yml

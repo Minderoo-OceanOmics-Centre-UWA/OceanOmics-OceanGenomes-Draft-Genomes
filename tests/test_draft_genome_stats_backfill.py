@@ -249,3 +249,80 @@ class TransactionAndVerificationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def genomescope_summary(og_id="OG1", date="250101", haploid="999 bp  1000 bp",
+                        model_fit="98%  99%", het="9%  10%"):
+    return f"""
+name prefix = {og_id}.ilmn.{date}
+Homozygous (aa)  90%  91%
+Heterozygous (ab)  {het}
+Genome Haploid Length  {haploid}
+Genome Repeat Length  99 bp  100 bp
+Genome Unique Length  899 bp  900 bp
+Model Fit  {model_fit}
+Read Error Rate  1%  2%
+"""
+
+
+class GenomescopeBothColumnsTests(unittest.TestCase):
+    """Until now only the right-hand column of each GenomeScope row reached the database."""
+
+    def parse(self, text):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "OG1.ilmn.250101_summary.txt"
+            write(path, text)
+            return stats.parse_genomescope(path)
+
+    def test_keeps_both_ends_of_every_bound(self):
+        record = self.parse(genomescope_summary())
+        self.assertEqual(record["genomesize"], 1000)
+        self.assertEqual(record["genomesize_min"], 999)
+        self.assertEqual(record["repeatsize_min"], 99)
+        self.assertEqual(record["uniquesize_min"], 899)
+        self.assertAlmostEqual(record["heterozygosity_min"], 9.0)
+        self.assertAlmostEqual(record["homozygosity_min"], 90.0)
+
+    def test_model_fit_columns_are_named_for_what_they_are(self):
+        # Not min/max: the first is the share of ALL k-mers modelled, the second the fit
+        # within the model's own region. OG2644 is stored as an 84% fit while the model
+        # accounts for 17% of its k-mers, and that second number has to survive.
+        record = self.parse(genomescope_summary(model_fit="17%  84%"))
+        self.assertAlmostEqual(record["modelfit"], 84.0)
+        self.assertAlmostEqual(record["modelfit_allkmers"], 17.0)
+
+    def test_inverted_model_fit_is_stored_as_written(self):
+        # OG2647 reports 82 then 25. They are unrelated statistics, so the parser must not
+        # "correct" the order into a min and a max.
+        record = self.parse(genomescope_summary(model_fit="81.7476%  25.2118%"))
+        self.assertAlmostEqual(record["modelfit_allkmers"], 81.7476)
+        self.assertAlmostEqual(record["modelfit"], 25.2118)
+
+    def test_diverged_fit_keeps_the_finite_bound(self):
+        # OG3043 reports "2,499,788 bp  Inf bp". This used to raise, so the sample got no
+        # GenomeScope row at all; before that it silently stored 2.5 Mb as the estimate.
+        record = self.parse(genomescope_summary(haploid="2,499,788 bp  Inf bp"))
+        self.assertEqual(record["genomesize_min"], 2499788)
+        self.assertIsNone(record["genomesize"])
+
+    def test_no_finite_size_in_either_column_still_raises(self):
+        with self.assertRaises(ValueError):
+            self.parse(genomescope_summary(haploid="Inf bp  Inf bp"))
+
+
+class CoverageSummaryTests(unittest.TestCase):
+    def test_reads_the_verdict_and_both_coverages(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "OG1.ilmn.250101_coverage_summary.json"
+            write(path, json.dumps({
+                "genome_size_reliable": False,
+                "genome_size_flags": "no_kmer_peak; host_coverage_too_low",
+                "fitted_kmer_coverage": 39.1,
+                "lambda_depth": 2.5,
+            }))
+            record = stats.parse_coverage_summary(path)
+        self.assertEqual(record["og_id"], "OG1")
+        self.assertFalse(record["genome_size_reliable"])
+        self.assertIn("no_kmer_peak", record["genome_size_flags"])
+        self.assertAlmostEqual(record["kmercov"], 39.1)
+        self.assertAlmostEqual(record["lambda_depth"], 2.5)

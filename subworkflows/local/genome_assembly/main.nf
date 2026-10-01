@@ -183,6 +183,11 @@ workflow GENOME_ASSEMBLY {
     megahit_assembled_contigs = MEGAHIT.out.contigs // pass to dweconatmination - fcs-gx
     meryl_db = MERYL_UNIONSUM.out.meryl_db  // need to check COUNT output to make sure im passing the right one
     genomescope_summary = GENOMESCOPE2.out.summary // pass into genome QC for size of genome (unique length)
+    genomescope_model = GENOMESCOPE2.out.model // fitted kmercov, for the depth comparison in QC
+    meryl_hist = MERYL_HISTOGRAM.out.hist // the histogram GENOMESCOPE_RESEED refits
+    // Provisional: the assembly cross-check has not run yet. RECHECK_GENOME_SIZE in
+    // GENOME_QC republishes this file once there is an assembly to compare against.
+    coverage_summary = CALCULATE_SEQUENCING_COVERAGE.out.coverage_json_meta
     multiqc_files = ch_multiqc_files             // channel: [ path(multiqc_files) ]
     multiqc_inputs = ch_sample_multiqc_inputs    // channel: [ tuple(meta), path(multiqc_file) ]
     versions = ch_versions              // channel: [ path(versions.yml) ]

@@ -14,6 +14,7 @@ process CALCULATE_SEQUENCING_COVERAGE {
     output:
     tuple val(meta), path("*_sequencing_coverage.txt"), emit: coverage_report
     path("*_coverage_summary.json"), emit: coverage_json
+    tuple val(meta), path("*_coverage_summary.json"), emit: coverage_json_meta
     tuple val(meta), path("*_coverage_summary_mqc.yaml"), emit: multiqc
     tuple val(meta), path("20_calculate_sequencing_coverage.tool_params_mqcrow.html"), emit: tool_params
     path "versions.yml", emit: versions
@@ -27,9 +28,9 @@ def prefix = task.ext.prefix ?: "${meta.prefix}"
 #!/usr/bin/env python3
 
 import json
-import re
 import platform
 import html
+import subprocess
 
 # Read FastP JSON report to get sequencing statistics
 with open("${fastp_json}", 'r') as f:
@@ -41,36 +42,38 @@ total_bases_before = fastp_data['summary']['before_filtering']['total_bases']
 total_reads_after = fastp_data['summary']['after_filtering']['total_reads']
 total_bases_after = fastp_data['summary']['after_filtering']['total_bases']
 
-# Read GenomeScope summary to extract estimated genome size
-estimated_genome_size = 0
-genome_size_min = 0
-genome_size_max = 0
-heterozygosity_min = 0
-heterozygosity_max = 0
-model_fit_min = 0
-model_fit_max = 0
+# --- GenomeScope reliability gate -------------------------------------------
+#
+# Every metric below this point divides by the estimated genome size, so a bad
+# GenomeScope fit silently turns into a confident-looking coverage verdict. The gate
+# itself lives in bin/genomescope_reliability.py so it can be unit tested and re-run
+# offline over published results; see that file for why each check exists.
+#
+# No assembly cross-check here: this process runs before MEGAHIT, so there is no
+# assembly to compare against yet. RECHECK_GENOME_SIZE adds that flag during QC and
+# publishes the authoritative summary. What this writes is provisional.
+gate = json.loads(subprocess.check_output([
+    "genomescope_reliability.py",
+    "--summary", "${genomescope_summary}",
+    "--model", "${genomescope_model}",
+    "--histogram", "${meryl_hist}",
+    "--min-model-fit", "${params.genomescope_min_model_fit}",
+    "--max-bias", "${params.genomescope_max_model_bias}",
+    "--min-peak-kmercov-ratio", "${params.genomescope_min_peak_kmercov_ratio}",
+    "--max-peak-kmercov-ratio", "${params.genomescope_max_peak_kmercov_ratio}",
+    "--peak-search-max", "${params.genomescope_peak_search_max}",
+], text=True))
 
-with open("${genomescope_summary}", 'r') as f:
-    for line in f:
-        line = line.strip()
-        if line.startswith('Genome Haploid Length'):
-            # Extract number from format like "Genome Haploid Length    4,123,456 bp"
-            size_matches = re.findall(r'([0-9,]+) bp', line)
-            if size_matches:
-                genome_size_min = int(size_matches[0].replace(',', ''))
-                genome_size_max = int(size_matches[-1].replace(',', ''))
-                estimated_genome_size = genome_size_max
-        elif re.match(r"^Heterozyg(?:osity|ous)", line, flags=re.I):
-            # Handles "Heterozygosity" or "Heterozygous (ab)"
-            het_matches = re.findall(r'(-?[0-9.]+)%', line)
-            if het_matches:
-                heterozygosity_min = float(het_matches[0])
-                heterozygosity_max = float(het_matches[-1])
-        elif line.startswith('Model Fit'):
-            fit_matches = re.findall(r'(-?[0-9.]+)%', line)
-            if fit_matches:
-                model_fit_min = float(fit_matches[0])
-                model_fit_max = float(fit_matches[-1])
+estimated_genome_size = gate["estimated_genome_size"] or 0
+genome_size_flags = gate["genome_size_flags"]
+genome_size_reliable = gate["genome_size_reliable"]
+# GenomeScope's two Model Fit values are not bounds: the first is the share of ALL
+# retained k-mers the model accounts for, the second the fit within the model's own
+# region. See bin/genomescope_reliability.py.
+model_fit_allkmers, model_fit_full = gate["model_fit_allkmers"], gate["model_fit_full"]
+heterozygosity_min = gate["heterozygosity_min"]
+heterozygosity_max = gate["heterozygosity_max"]
+peak_coverage, kmercov = gate["kmer_peak_coverage"], gate["kmercov"]
 
 # Calculate coverage metrics
 coverage_before = total_bases_before / estimated_genome_size if estimated_genome_size > 0 else 0
@@ -81,97 +84,6 @@ bases_removed = total_bases_before - total_bases_after
 reads_removed = total_reads_before - total_reads_after
 filtering_efficiency = (bases_removed / total_bases_before * 100) if total_bases_before > 0 else 0
 data_retention = total_bases_after / total_bases_before * 100 if total_bases_before > 0 else 0
-
-# --- GenomeScope reliability gate -------------------------------------------
-#
-# Every metric below this point divides by estimated_genome_size, so a bad
-# GenomeScope fit silently turns into a confident-looking coverage verdict. On
-# NOVA_260909_LA, OG2617 was published as "EXCELLENT / suitable for high-quality
-# genome assembly" at a 48% model fit whose kmercov was 17.9 against a claimed 67x.
-# Detect the failure modes and refuse to grade coverage when any of them fire.
-genome_size_flags = []
-
-if model_fit_min and model_fit_max and model_fit_min > model_fit_max:
-    # The two model solutions swapped; the bounds are meaningless.
-    genome_size_flags.append("inverted_model_fit_bounds")
-
-if model_fit_min and model_fit_min < ${params.genomescope_min_model_fit}:
-    genome_size_flags.append("model_fit_below_${params.genomescope_min_model_fit}pc")
-
-if heterozygosity_max <= 0 or heterozygosity_max > 100:
-    # 0% means the model collapsed onto a single solution; negative means it failed
-    # outright (GenomeScope reports -100%).
-    genome_size_flags.append("implausible_heterozygosity")
-
-if estimated_genome_size <= 0:
-    genome_size_flags.append("no_genome_size_estimate")
-
-if model_fit_min and model_fit_max and model_fit_min == model_fit_max and model_fit_min > 0:
-    # GenomeScope collapsed onto a single solution instead of a min/max pair. On this
-    # run that meant it had locked onto a high-copy contaminant (OG2639 reported a
-    # "98.3% fit" on a 1.6 Mb genome at kmercov 422).
-    genome_size_flags.append("degenerate_model_fit")
-
-# Does the coverage GenomeScope fitted correspond to an actual mode in the k-mer
-# histogram? An Illumina histogram falls from cov=1 (errors), troughs, then rises into
-# the genomic peak. If the tallest mode above that trough sits nowhere near the fitted
-# kmercov, GenomeScope fitted something that is not the genome -- typically the
-# high-coverage repeat/symbiont plateau that dominates repeat-rich invertebrate
-# libraries. A mode at 1x or 2x kmercov is expected (homozygous vs heterozygous peak),
-# so only disagreement beyond that is a problem.
-kmercov = 0.0
-try:
-    with open("${genomescope_model}", 'r') as mf:
-        for mline in mf:
-            if mline.startswith('kmercov'):
-                kmercov = float(mline.split()[1])
-                break
-except (OSError, ValueError, IndexError):
-    pass
-
-peak_coverage = 0
-try:
-    hist = {}
-    with open("${meryl_hist}", 'r') as hf:
-        for hline in hf:
-            parts = hline.split()
-            if len(parts) < 2:
-                continue
-            try:
-                cov = int(parts[0])
-                count = int(parts[1])
-            except ValueError:
-                continue
-            if 1 <= cov <= ${params.genomescope2_m}:
-                hist[cov] = count
-
-    covs = sorted(hist)
-    if len(covs) >= 10:
-        trough_cov, trough_count = covs[0], hist[covs[0]]
-        for cov in covs:
-            if hist[cov] <= trough_count:
-                trough_cov, trough_count = cov, hist[cov]
-            elif hist[cov] > trough_count * 2:
-                break
-        best_count = 0
-        for cov in covs:
-            if cov > trough_cov and hist[cov] > best_count:
-                best_count, peak_coverage = hist[cov], cov
-        if trough_count == 0 or best_count < trough_count * 2:
-            peak_coverage = 0
-    hist_readable = True
-except OSError:
-    hist_readable = False
-    genome_size_flags.append("meryl_histogram_unreadable")
-
-if not hist_readable:
-    pass
-elif peak_coverage == 0:
-    genome_size_flags.append("no_kmer_peak")
-elif kmercov > 0 and peak_coverage / kmercov > ${params.genomescope_max_peak_kmercov_ratio}:
-    genome_size_flags.append("kmer_peak_disagrees_with_fitted_coverage")
-
-genome_size_reliable = not genome_size_flags
 
 if coverage_after >= 50:
     coverage_status = "EXCELLENT"
@@ -199,39 +111,42 @@ if not genome_size_reliable:
         "Assess coverage against the decontaminated assembly size instead."
     )
 
+
+def pct(value):
+    return "NA" if value is None else f"{value:.4f}%"
+
+
 # Write detailed report
 with open("${prefix}_sequencing_coverage.txt", 'w') as f:
     f.write("SEQUENCING COVERAGE ANALYSIS\\n")
     f.write("=" * 50 + "\\n\\n")
     f.write(f"Sample ID: ${meta.id}\\n\\n")
-    
+
     f.write("GENOME SIZE ESTIMATION (GenomeScope):\\n")
     f.write(f"  Estimated genome size: {estimated_genome_size:,} bp\\n")
-    if genome_size_min and genome_size_max:
-        f.write(f"  Genome size range: {genome_size_min:,} - {genome_size_max:,} bp\\n")
-    f.write(f"  Estimated heterozygosity: {heterozygosity_min:.4f}% - {heterozygosity_max:.4f}%\\n")
-    if model_fit_min or model_fit_max:
-        mf_min = f"{model_fit_min:.4f}%" if model_fit_min else "NA"
-        mf_max = f"{model_fit_max:.4f}%" if model_fit_max else "NA"
-        f.write(f"  Model fit: {mf_min} - {mf_max}\\n")
+    if gate["genome_size_min"] and gate["genome_size_max"]:
+        f.write(f"  Genome size range: {gate['genome_size_min']:,} - {gate['genome_size_max']:,} bp\\n")
+    f.write(f"  Estimated heterozygosity: {pct(heterozygosity_min)} - {pct(heterozygosity_max)}\\n")
+    f.write(f"  Model fit (full model): {pct(model_fit_full)}\\n")
+    f.write(f"  K-mers modelled (all k-mers): {pct(model_fit_allkmers)}\\n")
     f.write("\\n")
-    
+
     f.write("SEQUENCING STATISTICS (FastP):\\n")
     f.write("  Before filtering:\\n")
     f.write(f"    Total reads: {total_reads_before:,}\\n")
     f.write(f"    Total bases: {total_bases_before:,} bp\\n")
     f.write(f"    Theoretical coverage: {coverage_before:.1f}x\\n\\n")
-    
+
     f.write("  After filtering:\\n")
     f.write(f"    Total reads: {total_reads_after:,}\\n")
     f.write(f"    Total bases: {total_bases_after:,} bp\\n")
     f.write(f"    Theoretical coverage: {coverage_after:.1f}x\\n\\n")
-    
+
     f.write("FILTERING SUMMARY:\\n")
     f.write(f"  Reads removed: {reads_removed:,} ({reads_removed/total_reads_before*100:.1f}%)\\n")
     f.write(f"  Bases removed: {bases_removed:,} ({filtering_efficiency:.1f}%)\\n")
     f.write(f"  Data retention: {data_retention:.1f}%\\n\\n")
-    
+
     f.write(f"  K-mer peak coverage: {peak_coverage}x\\n" if peak_coverage else "  K-mer peak coverage: none detected\\n")
     f.write(f"  Fitted k-mer coverage (GenomeScope kmercov): {kmercov:.1f}x\\n" if kmercov else "  Fitted k-mer coverage: NA\\n")
     f.write(f"  Genome size estimate reliable: {'yes' if genome_size_reliable else 'no'}\\n")
@@ -247,10 +162,13 @@ with open("${prefix}_sequencing_coverage.txt", 'w') as f:
 summary_data = {
     "sample_id": "${meta.id}",
     "estimated_genome_size": estimated_genome_size,
-    "genome_size_min": genome_size_min,
-    "genome_size_max": genome_size_max,
-    "model_fit_min": model_fit_min,
-    "model_fit_max": model_fit_max,
+    "genome_size_min": gate["genome_size_min"],
+    "genome_size_max": gate["genome_size_max"],
+    "model_fit_allkmers": model_fit_allkmers,
+    "model_fit_full": model_fit_full,
+    # Deprecated aliases, kept for one release. model_fit_min was never a minimum.
+    "model_fit_min": model_fit_allkmers,
+    "model_fit_max": model_fit_full,
     "heterozygosity_min": heterozygosity_min,
     "heterozygosity_max": heterozygosity_max,
     "total_bases_after_filtering": total_bases_after,
@@ -264,7 +182,12 @@ summary_data = {
     "genome_size_reliable": genome_size_reliable,
     "genome_size_flags": "; ".join(genome_size_flags),
     "kmer_peak_coverage": peak_coverage,
-    "fitted_kmer_coverage": kmercov
+    # One name for this number. RECHECK_GENOME_SIZE, the MultiQC row and
+    # draft_genome_stats.py all read "kmercov"; fitted_kmer_coverage is a deprecated alias
+    # kept for one release so existing readers of published summaries keep working.
+    "kmercov": kmercov,
+    "fitted_kmer_coverage": kmercov,
+    "assembly_cross_check": "pending"
 }
 
 with open("${prefix}_coverage_summary.json", 'w') as f:
@@ -273,9 +196,12 @@ with open("${prefix}_coverage_summary.json", 'w') as f:
 coverage_rows = [
     ("Sample ID", "${meta.id}"),
     ("Estimated genome size", f"{estimated_genome_size:,} bp" if estimated_genome_size else "NA"),
-    ("Genome size range", f"{genome_size_min:,} - {genome_size_max:,} bp" if genome_size_min and genome_size_max else "NA"),
-    ("Heterozygosity", f"{heterozygosity_min:.4f}% - {heterozygosity_max:.4f}%"),
-    ("Model fit", f"{model_fit_min:.4f}% - {model_fit_max:.4f}%" if model_fit_min or model_fit_max else "NA"),
+    ("Genome size range",
+     f"{gate['genome_size_min']:,} - {gate['genome_size_max']:,} bp"
+     if gate["genome_size_min"] and gate["genome_size_max"] else "NA"),
+    ("Heterozygosity", f"{pct(heterozygosity_min)} - {pct(heterozygosity_max)}"),
+    ("Model fit (full model)", pct(model_fit_full)),
+    ("K-mers modelled (all k-mers)", pct(model_fit_allkmers)),
     ("Coverage before filtering", f"{coverage_before:.1f}x"),
     ("Coverage after filtering", f"{coverage_after:.1f}x"),
     ("Reads after filtering", f"{total_reads_after:,}"),
@@ -311,8 +237,11 @@ with open("${prefix}_coverage_summary_mqc.yaml", 'w') as f:
 
 tool_params_html = (
     "<tr><td>Calculate Sequencing Coverage</td>"
-    "<td><samp>inline Python coverage summary using FastP JSON and GenomeScope2 summary inputs</samp></td>"
-    "<td>Computes theoretical pre/post-filtering coverage and writes ${prefix}_coverage_summary.json.</td></tr>"
+    "<td><samp>genomescope_reliability.py --min-model-fit ${params.genomescope_min_model_fit} "
+    "--max-bias ${params.genomescope_max_model_bias} "
+    "--peak-search-max ${params.genomescope_peak_search_max}</samp></td>"
+    "<td>Computes theoretical pre/post-filtering coverage and gates it on whether the "
+    "GenomeScope fit can be trusted. Writes ${prefix}_coverage_summary.json.</td></tr>"
 )
 
 with open("20_calculate_sequencing_coverage.tool_params_mqcrow.html", "w") as f:

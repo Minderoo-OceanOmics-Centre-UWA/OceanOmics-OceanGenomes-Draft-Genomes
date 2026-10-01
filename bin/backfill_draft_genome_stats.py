@@ -23,6 +23,7 @@ from draft_genome_stats import (
     parse_busco,
     parse_decontamination,
     parse_fastp,
+    parse_coverage_summary,
     parse_genomescope,
     parse_gfastats,
     upsert_record,
@@ -33,6 +34,7 @@ from draft_genome_stats import (
 COMPONENTS: dict[str, tuple[str, Callable[[Path], dict[str, Any]]]] = {
     "fastp": ("**/*.fastp.json", parse_fastp),
     "genomescope": ("kmers/*genomescope/*summary.txt", parse_genomescope),
+    "coverage_summary": ("coverage/*_coverage_summary.json", parse_coverage_summary),
     "tiara": ("assemblies/genome/tiara/*tiara_filter_summary.txt", lambda path: _parse_decontam_part(path, "tiara")),
     "filter_report": ("assemblies/genome/NCBI/*filter_report.txt", lambda path: _parse_decontam_part(path, "filter")),
     "contigs_lt500": ("assemblies/genome/NCBI/*contig_count_500bp.txt", lambda path: _parse_decontam_part(path, "contigs")),
@@ -41,6 +43,18 @@ COMPONENTS: dict[str, tuple[str, Callable[[Path], dict[str, Any]]]] = {
     "merqury_qv": ("kmers/*.merqury.qv", lambda path: _read_merqury(path, "qv")),
     "gfastats": ("assemblies/genome/gfastats/*assembly_summary*", parse_gfastats),
 }
+
+# Components a sample may legitimately lack. The coverage summary post-dates most of the
+# archive, and an older run having no reliability verdict is not a reason to refuse to
+# backfill the GenomeScope numbers that are there.
+OPTIONAL_COMPONENTS = {"coverage_summary"}
+
+# Columns that come only from an optional component, so a sample legitimately lacking that
+# component must not be failed for not producing them.
+# Columns that only exist when a coverage summary was published beside the sample, which
+# is not the case for archived runs predating the reliability gate.
+OPTIONAL_COLUMNS = {"genome_size_reliable", "genome_size_flags", "kmercov", "lambda_depth",
+                    "host_assembly_size", "host_assembly_fraction"}
 
 INVENTORY_FIELDS = ("og_id", "seq_date", *COMPONENTS.keys(), "status", "details")
 UPLOAD_FIELDS = ("og_id", "seq_date", "status", "details")
@@ -133,6 +147,8 @@ def _select_component(sample: Sample, root: Path, component: str) -> None:
         sample.errors.append(f"{component}: ambiguous matches: " + ", ".join(str(item[0]) for item in matches))
     elif parse_errors:
         sample.errors.append(f"{component}: malformed candidate(s): " + " | ".join(parse_errors))
+    elif component in OPTIONAL_COMPONENTS:
+        sample.records[component] = {}
     else:
         sample.errors.append(f"{component}: no file matching {pattern!r} for {sample.og_id}/{sample.seq_date}")
 
@@ -156,9 +172,14 @@ def discover_sample(archive_root: Path, og_id: str, seq_date: str,
         merqury = {**sample.records["merqury_completeness"],
                    **{key: value for key, value in sample.records["merqury_qv"].items()
                       if key not in ("og_id", "seq_date")}}
+        # The GenomeScope numbers and the reliability verdict are the same family, so
+        # they merge into one row rather than fighting over it.
+        assembly = {**sample.records["genomescope"],
+                    **{key: value for key, value in sample.records.get("coverage_summary", {}).items()
+                       if key not in ("og_id", "seq_date")}}
         families = {
             "fastp": sample.records["fastp"],
-            "assembly": sample.records["genomescope"],
+            "assembly": assembly,
             "decontamination": decontamination,
             "busco": sample.records["busco"],
             "merqury": merqury,
@@ -166,7 +187,8 @@ def discover_sample(archive_root: Path, og_id: str, seq_date: str,
         }
         for family, record in families.items():
             assert_identity(record, og_id, seq_date, family)
-            missing = [column for column in FAMILY_COLUMNS[family] if column not in record]
+            missing = [column for column in FAMILY_COLUMNS[family]
+                       if column not in record and column not in OPTIONAL_COLUMNS]
             if missing:
                 raise ValueError(f"{family}: parser omitted columns: {', '.join(missing)}")
         sample.records = families

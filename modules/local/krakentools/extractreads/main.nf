@@ -53,7 +53,9 @@ process KRAKENTOOLS_EXTRACTREADS {
         -s2 ${reads[1]} \\
         -o ${prefix}.kraken2filt.R1.fastq \\
         -o2 ${prefix}.kraken2filt.R2.fastq \\
-        ${args}
+        ${args} \\
+        > >(tr '\\t' '\\n' | grep -v 'reads processed' || true)
+    wait
 
     rm -f kraken2_assignments.txt
 
@@ -135,14 +137,14 @@ lines += ["    </tbody>", "    </table>"]
 print("\\n".join(lines))
 PY
 
-    cat <<-END_TOOL_PARAMS > 15_krakentools_extractreads.tool_params_mqcrow.html
-    <tr><td>KrakenTools ExtractReads</td><td><samp>${effective_args}</samp></td><td>${note}</td></tr>
-    END_TOOL_PARAMS
+cat <<END_TOOL_PARAMS > 15_krakentools_extractreads.tool_params_mqcrow.html
+<tr><td>KrakenTools ExtractReads</td><td><samp>${effective_args}</samp></td><td>${note}</td></tr>
+END_TOOL_PARAMS
 
-    cat <<-END_VERSIONS > versions.yml
-    "${task.process}":
-        krakentools: 1.2.1
-    END_VERSIONS
+cat <<END_VERSIONS > versions.yml
+"${task.process}":
+    krakentools: 1.2.1
+END_VERSIONS
     """
 
     stub:
@@ -156,13 +158,13 @@ PY
     touch ${prefix}.kraken2_retention.txt
     touch ${prefix}_kraken2_retention_mqc.yaml
 
-    cat <<-END_TOOL_PARAMS > 15_krakentools_extractreads.tool_params_mqcrow.html
-    <tr><td>KrakenTools ExtractReads</td><td><samp>${effective_args}</samp></td><td>${note}</td></tr>
-    END_TOOL_PARAMS
+cat <<END_TOOL_PARAMS > 15_krakentools_extractreads.tool_params_mqcrow.html
+<tr><td>KrakenTools ExtractReads</td><td><samp>${effective_args}</samp></td><td>${note}</td></tr>
+END_TOOL_PARAMS
 
-    cat <<-END_VERSIONS > versions.yml
-    "${task.process}":
-        krakentools: 1.2.1
-    END_VERSIONS
+cat <<END_VERSIONS > versions.yml
+"${task.process}":
+    krakentools: 1.2.1
+END_VERSIONS
     """
 }

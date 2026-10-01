@@ -68,6 +68,8 @@ fastp performs adapter/quality trimming and filtering; FastQC provides per-sampl
 
 K-mer histograms are generated with meryl and modelled by GenomeScope2 to estimate genome size, heterozygosity, and duplication; coverage metrics are derived by combining fastp and GenomeScope outputs.
 
+The per-sample `*_kmer_depth.json` also carries a genome size that does not come from the k-mer histogram at all. The k-mer route collapses below about 10x host coverage, so `SUMMARISE_KMER_COVERAGE` partitions the assembly by per-contig read depth around the depth of the host's own single-copy BUSCO genes: `host_assembly_size` is the mass sitting at host depth, `symbiont_assembly_size` the mass well above it, and `host_assembly_fraction` how much of the assembly is the animal. `partition_status` says whether the partition was possible (`ok`, `no_host_depth`, `no_contig_depth`). Both sizes are **lower bounds**: a symbiont that happens to sit at the host's depth counts as host, and a high-copy host repeat counts as symbiont. Where the partition succeeded, the genome size cross-check divides by the host mass rather than the whole assembly, and records which it used in `assembly_ratio_basis`.
+
 ### Assembly (MEGAHIT)
 
 <details markdown="1">

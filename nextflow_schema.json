@@ -65,8 +65,8 @@
                 },
                 "genomescope2_m": {
                     "type": "integer",
-                    "description": "GenomeScope2 -m/--max_kmercov: k-mers above this coverage are excluded from the model fit. Raise for repeat-rich genomes whose k-mer mass sits above 1000x.",
-                    "default": 10000,
+                    "description": "GenomeScope2 -m/--max_kmercov: k-mers above this coverage are excluded from the model fit. Raising it does not recover host mass -- the estimate climbs without ever plateauing and the gain lands entirely in repeat length -- so raise it only for a sample with evidence its genomic signal is truncated.",
+                    "default": 1000,
                     "minimum": 100
                 },
                 "tiara_min_len": {
@@ -87,10 +87,92 @@
                 },
                 "genomescope_min_model_fit": {
                     "type": "number",
-                    "description": "Minimum GenomeScope Model Fit (lower bound, percent) below which the genome size estimate is flagged unreliable and coverage is not graded.",
+                    "description": "Minimum GenomeScope Model Fit (upper bound, percent) below which the genome size estimate is flagged unreliable and coverage is not graded. The upper bound is the fit to the modelled region; the lower bound is a residual over whatever genomescope2_m admitted and moves with that setting.",
                     "default": 50,
                     "minimum": 0,
                     "maximum": 100
+                },
+                "genomescope_max_model_bias": {
+                    "type": "number",
+                    "description": "Maximum GenomeScope bias coefficient. A large bias term is the model buying agreement with a shape that is not a diploid k-mer spectrum.",
+                    "default": 5,
+                    "minimum": 1
+                },
+                "genomescope_min_peak_kmercov_ratio": {
+                    "type": "number",
+                    "description": "Minimum ratio of the observed k-mer histogram mode to GenomeScope's fitted kmercov. Below this the fitted coverage sits above a mode the histogram does not show.",
+                    "default": 0.5,
+                    "minimum": 0
+                },
+                "genomescope_peak_search_max": {
+                    "type": "integer",
+                    "description": "Coverage ceiling for k-mer peak detection. Independent of genomescope2_m on purpose: tying the search range to the model cutoff made the flag move whenever the cutoff moved.",
+                    "default": 1000,
+                    "minimum": 100
+                },
+                "kmer_depth_min_mapq": {
+                    "type": "integer",
+                    "description": "MAPQ floor for read depth over Complete BUSCO genes. Depth at Q0 and Q20 agreed within 3% on every sample tested, so this is not what makes a low-coverage sample look low-coverage.",
+                    "default": 20,
+                    "minimum": 0
+                },
+                "kmer_depth_min_regions": {
+                    "type": "integer",
+                    "description": "Minimum usable Complete BUSCO regions before a measured lambda is reported. Falling below it usually means the BUSCO table and the BAM describe different assemblies.",
+                    "default": 20,
+                    "minimum": 1
+                },
+                "kmer_depth_max_ratio": {
+                    "type": "number",
+                    "description": "How far GenomeScope's fitted kmercov may sit from the lambda measured from read depth before the size estimate is flagged. A factor of two here is a factor of two in the genome size, so the ceiling sits below it: fitting the homozygous peak as heterozygous or the reverse is GenomeScope's characteristic failure.",
+                    "default": 1.5,
+                    "minimum": 1
+                },
+                "host_depth_window": {
+                    "type": "number",
+                    "description": "Multiplicative half-width of the host depth band used to partition an assembly into host and symbiont mass. A contig counts as host when host_depth / window <= meandepth <= host_depth * window.",
+                    "default": 2.0,
+                    "minimum": 1
+                },
+                "host_depth_min_contig": {
+                    "type": "integer",
+                    "description": "Contigs shorter than this are excluded from the depth partition. At a few hundred bases a mean depth is noise, and the contig would otherwise be assigned by it.",
+                    "default": 500,
+                    "minimum": 0
+                },
+                "kmer_depth_min_seedable": {
+                    "type": "number",
+                    "description": "Measured lambda below which no reseed is attempted. There is no host peak to fit at that coverage, and forcing the optimiser there produces fits of a few percent with non-finite genome lengths.",
+                    "default": 5.0,
+                    "minimum": 0
+                },
+                "genomescope_reseed_when_flagged": {
+                    "type": "boolean",
+                    "description": "Refit GenomeScope seeded with the measured lambda when the first fit was flagged unreliable. The reseeded fit is kept only if it beats the original.",
+                    "default": true
+                },
+                "genomescope_min_reseed_fit_gain": {
+                    "type": "number",
+                    "description": "Points of model_fit_full a reseeded fit must gain before it replaces the original. It must also move kmercov toward the measured lambda.",
+                    "default": 2,
+                    "minimum": 0
+                },
+                "report_subdir": {
+                    "type": "string",
+                    "description": "Subdirectory for the run-level aggregate reports (coverage_summary, multiqc). Set it per launch when several launches share one outdir, so they do not overwrite each other's copy.",
+                    "default": ""
+                },
+                "genomescope_min_assembly_ratio": {
+                    "type": "number",
+                    "description": "Lower bound on GenomeScope genome size divided by decontaminated assembly size before the estimate is flagged. Catches a model that converged cleanly onto something that is not the genome.",
+                    "default": 0.3,
+                    "minimum": 0
+                },
+                "genomescope_max_assembly_ratio": {
+                    "type": "number",
+                    "description": "Upper bound on GenomeScope genome size divided by decontaminated assembly size before the estimate is flagged.",
+                    "default": 2.0,
+                    "minimum": 1
                 },
                 "genomescope_max_peak_kmercov_ratio": {
                     "type": "number",
@@ -299,6 +381,18 @@
                 "precomputed_genomescope_summary": {
                     "type": "string",
                     "description": "Glob for precomputed GenomeScope summary files."
+                },
+                "precomputed_genomescope_model": {
+                    "type": "string",
+                    "description": "Glob for precomputed GenomeScope model files, needed for the read-depth comparison when the k-mer stage is skipped."
+                },
+                "precomputed_meryl_hist": {
+                    "type": "string",
+                    "description": "Glob for precomputed meryl histograms, which GENOMESCOPE_RESEED refits."
+                },
+                "precomputed_coverage_summary": {
+                    "type": "string",
+                    "description": "Glob for precomputed coverage summary JSON files, needed so the assembly cross-check can run when the k-mer stage is skipped."
                 },
                 "precomputed_meryl_results": {
                     "type": "string",

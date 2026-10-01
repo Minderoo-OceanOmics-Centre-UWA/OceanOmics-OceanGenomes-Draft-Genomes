@@ -10,12 +10,24 @@ include { EXTRACT_BUSCO_SEQUENCES           } from '../../../modules/local/extra
 include { BWAMEM2_INDEX                     } from '../../../modules/nf-core/bwamem2/index'
 include { BWAMEM2_MEM                       } from '../../../modules/nf-core/bwamem2/mem'
 include { MERQURY_MERQURY                   } from '../../../modules/nf-core/merqury/merqury'
-include { GFASTATS                          } from '../../../modules/nf-core/gfastats'
+include { GFASTATS                          } from '../../../modules/local/gfastats'
 include { SEQKIT_STATS                      } from '../../../modules/nf-core/seqkit/stats'
+include { RECHECK_GENOME_SIZE               } from '../../../modules/local/coverage/recheck'
+include { buscoDbForClass                   } from '../utils_nfcore_oceangenomes_draftgenomes_pipeline'
+include { MEASURE_KMER_COVERAGE             } from '../../../modules/local/coverage/kmer_depth'
+include { SUMMARISE_KMER_COVERAGE           } from '../../../modules/local/coverage/kmer_depth_summarise'
+include { GENOMESCOPE_RESEED                } from '../../../modules/local/genomescope_reseed'
 
 
-//FUNCTION: Join multiple [meta, value] channels on a set of keys, then merge metas.
+//FUNCTION: Join multiple [meta, v1, v2, ...] channels on a set of keys, then merge metas.
 //          By default joins on id, run, date, prefix.
+//
+//          A channel may emit any number of values after the meta, not just one. Every
+//          value is concatenated positionally into the result, in the order the channels
+//          are listed, so the downstream process input must be declared in that same
+//          order. MEASURE_KMER_COVERAGE.out.bedcov emits [meta, bedcov, status] and an
+//          earlier two-argument version of the inner map threw MissingMethodException on
+//          it, taking the whole run down.
 def join_on_keys_and_merge = { channels, List keys = ['id','run','date','prefix'] ->
     // println "DEBUG: Starting join with ${channels.size()} channels"
     
@@ -29,11 +41,16 @@ def join_on_keys_and_merge = { channels, List keys = ['id','run','date','prefix'
         return keyVals
     }
     
-    // Convert all channels to [key, [meta, value]] format
+    // Convert all channels to [key, [meta, values]] format. Takes the emission as a single
+    // argument rather than destructuring it, so a channel emitting more than one value
+    // after the meta keys the same way as one emitting a single value.
     def keyedChannels = channels.collect { ch ->
-        ch.map { meta, val -> 
+        ch.map { entry ->
+            def items = entry instanceof List ? entry : [entry]
+            def meta = items[0]
+            def vals = items.size() > 1 ? items[1..-1] : []
             def keyVals = keyer(meta)
-            [ keyVals, [meta, val] ] 
+            [ keyVals, [meta, vals] ]
         }
         // .view { "DEBUG: Keyed channel entry: ${it[0]} -> meta.id: ${it[1][0].id}" }
     }
@@ -57,9 +74,9 @@ def join_on_keys_and_merge = { channels, List keys = ['id','run','date','prefix'
         def values = []
         
         metaVals.each { metaVal ->
-            def (meta, val) = metaVal
+            def (meta, vals) = metaVal
             merged_meta = merged_meta + meta
-            values << val
+            values.addAll(vals)
         }
         
         def result = [merged_meta] + values
@@ -82,6 +99,10 @@ workflow GENOME_QC {
     genomescope_summary // tuple val(meta), path("${meta.prefix}_summary.txt") 
     assembly // tuple val(meta), path(assembly)
     meryl_db // tuple val(meta), path(meryl_dir)
+    coverage_summary // tuple val(meta), path("*_coverage_summary.json") -- provisional
+    fastp_json // tuple val(meta), path("*.fastp.json")
+    genomescope_model // tuple val(meta), path("*_model.txt")
+    meryl_hist // tuple val(meta), path("*.meryl.hist")
 
     
     main:
@@ -101,58 +122,10 @@ workflow GENOME_QC {
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
     
-    // Determining which BUSCO database to use based on meta.class.
-    // Ray-finned fish get the actinopterygii db, other vertebrates get the vertebrata db,
-    // and the invertebrate classes below get their own odb12 lineage. Anything unlisted
-    // falls back to the metazoa db, which is the safe default now that we run more
-    // inverts than fish. To route a new class, add its name to one of the lists.
-    // Note: Ascidiacea (tunicates) is deliberately absent from ACTI/VERT - it is a
-    // chordate but not a vertebrate, so it correctly falls through to metazoa.
-    //
-    // There is no echinoderm or sponge lineage in odb12, so Asteroidea, Ophiuroidea,
-    // Demospongiae, Hexactinellida and Porifera stay on metazoa by necessity, not by
-    // oversight. Do not add them to a list expecting a narrower dataset to exist.
-    def BUSCO_ACTI_CLASSES = ['Actinopteri', 'Actinopterygii', 'Teleostei']
-    def BUSCO_VERT_CLASSES = [
-        'Chondrichthyes', 'Mammalia', 'Aves', 'Reptilia', 'Amphibia',
-        'Myxini', 'Hyperoartia', 'Coelacanthimorpha', 'Dipneusti', 'Lepidosauria', 'Testudines'
-    ]
-    def BUSCO_CRUSTACEA_CLASSES = ['Malacostraca', 'Thecostraca', 'Branchiopoda', 'Copepoda', 'Ostracoda', 'Maxillopoda']
-    def BUSCO_MOLLUSCA_CLASSES = ['Gastropoda', 'Bivalvia', 'Polyplacophora', 'Cephalopoda', 'Scaphopoda', 'Monoplacophora']
-    def BUSCO_ANTHOZOA_CLASSES = ['Anthozoa']
-    // Arthropod classes with no narrower odb12 lineage of their own. Insecta and the
-    // arachnids have dedicated datasets, so they are not routed here.
-    def BUSCO_ARTHROPODA_CLASSES = ['Pycnogonida', 'Merostomata', 'Chilopoda', 'Diplopoda', 'Symphyla', 'Pauropoda']
-
-    ch_with_busco_db = assembly.map { meta, file ->
-        if ( !meta.class || meta.class.toString().toLowerCase() == 'unknown' ) {
-            throw new IllegalArgumentException(
-                "Sample '${meta.id}' has no taxonomic class (got '${meta.class}'), so no BUSCO " +
-                "lineage can be chosen. Load the missing taxonomy with " +
-                "scripts/taxonomy/load_taxonomy.py and regenerate the samplesheet."
-            )
-        }
-
-        // Narrower lineages are tested first: Malacostraca must reach crustacea rather
-        // than the broader arthropoda fallback.
-        def busco_db
-        if ( meta.class in BUSCO_ACTI_CLASSES ) {
-            busco_db = params.busco_acti_db
-        } else if ( meta.class in BUSCO_VERT_CLASSES ) {
-            busco_db = params.busco_vert_db
-        } else if ( meta.class in BUSCO_CRUSTACEA_CLASSES && params.busco_crustacea_db ) {
-            busco_db = params.busco_crustacea_db
-        } else if ( meta.class in BUSCO_MOLLUSCA_CLASSES && params.busco_mollusca_db ) {
-            busco_db = params.busco_mollusca_db
-        } else if ( meta.class in BUSCO_ANTHOZOA_CLASSES && params.busco_anthozoa_db ) {
-            busco_db = params.busco_anthozoa_db
-        } else if ( meta.class in BUSCO_ARTHROPODA_CLASSES && params.busco_arthropoda_db ) {
-            busco_db = params.busco_arthropoda_db
-        } else {
-            busco_db = params.busco_metazoa_db
-        }
-        return [meta, file, busco_db]
-    }
+    // The class-to-lineage ladder lives in the pipeline utils subworkflow so the
+    // precomputed-BUSCO branch in draftgenomes.nf reaches the same answer when it has to
+    // choose between result sets from two different lineages.
+    ch_with_busco_db = assembly.map { meta, file -> [meta, file, buscoDbForClass(meta)] }
 
     
     //
@@ -242,6 +215,61 @@ workflow GENOME_QC {
     ch_versions = ch_versions.mix(SEQKIT_STATS.out.versions.first())
     ch_seqkit_stats_results = SEQKIT_STATS.out.stats // channel: tuple val(meta), path("*.seqkit_stats.tsv")
 
+    //
+    // MODULE: Measure haploid k-mer coverage from read depth
+    //
+    // An independent estimate of the quantity GenomeScope fits, from the alignments rather
+    // than the k-mer histogram. It needs the BAM and the BUSCO table, so it can only run
+    // here -- GENOME_ASSEMBLY has neither.
+    //
+    // Split across two containers: samtools has no python, python has no samtools.
+    MEASURE_KMER_COVERAGE (
+        join_on_keys_and_merge([BWAMEM2_MEM.out.bam, BUSCO_BUSCO.out.full_table])
+    )
+    ch_versions = ch_versions.mix(MEASURE_KMER_COVERAGE.out.versions.first())
+
+    ch_kmer_depth_summarise = join_on_keys_and_merge(
+        [MEASURE_KMER_COVERAGE.out.bedcov, MEASURE_KMER_COVERAGE.out.contig_depth,
+         fastp_json, ch_seqkit_stats_results, genomescope_model])
+
+    SUMMARISE_KMER_COVERAGE (
+        ch_kmer_depth_summarise // tuple val(meta), path(bedcov), path(status), path(contig_depth), path(fastp_json), path(seqkit_stats), path(model)
+    )
+    ch_versions = ch_versions.mix(SUMMARISE_KMER_COVERAGE.out.versions.first())
+    ch_kmer_depth = SUMMARISE_KMER_COVERAGE.out.kmer_depth
+
+    //
+    // MODULE: Refit GenomeScope seeded with the measured coverage, where the first failed
+    //
+    // Only runs for samples the gate flagged, and only where the measured lambda is high
+    // enough that there is something to fit. It keeps the reseeded fit only if that fit
+    // beats the original on its own terms; otherwise the original stands.
+    //
+    ch_reseed_input = join_on_keys_and_merge(
+        [meryl_hist, coverage_summary, ch_kmer_depth, genomescope_summary, genomescope_model])
+
+    GENOMESCOPE_RESEED (
+        ch_reseed_input // tuple val(meta), path(hist), path(coverage_json), path(kmer_depth_json), path(summary), path(model)
+    )
+    ch_versions = ch_versions.mix(GENOMESCOPE_RESEED.out.versions.first())
+    ch_reseed_decision = GENOMESCOPE_RESEED.out.decision
+
+    //
+    // MODULE: Cross-check the GenomeScope genome size against the assembly
+    //
+    // The coverage summary written during assembly is provisional: at that point MEGAHIT
+    // had not run, so the one reliability check that needs an assembly could not be made.
+    // This republishes it as the final verdict.
+    //
+    ch_recheck_input = join_on_keys_and_merge(
+        [coverage_summary, ch_seqkit_stats_results, ch_kmer_depth])
+
+    RECHECK_GENOME_SIZE (
+        ch_recheck_input // tuple val(meta), path(coverage_json), path(seqkit_stats), path(kmer_depth_json)
+    )
+    ch_versions = ch_versions.mix(RECHECK_GENOME_SIZE.out.versions.first())
+    ch_coverage_summary_final = RECHECK_GENOME_SIZE.out.coverage_json
+
 
     //
     // Collect files
@@ -254,6 +282,11 @@ workflow GENOME_QC {
     ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(MERQURY_MERQURY.out.tool_params)
     ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(GFASTATS.out.tool_params)
     ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(SEQKIT_STATS.out.tool_params)
+    ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(MEASURE_KMER_COVERAGE.out.tool_params)
+    ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(SUMMARISE_KMER_COVERAGE.out.tool_params)
+    ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(GENOMESCOPE_RESEED.out.tool_params)
+    ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(RECHECK_GENOME_SIZE.out.multiqc)
+    ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(RECHECK_GENOME_SIZE.out.tool_params)
     ch_multiqc_files = ch_multiqc_files.mix(ch_multiqc_inputs.collect { it[1] })
     ch_multiqc_files = ch_multiqc_files.mix(BUSCO_BUSCO.out.tool_params.collect { it[1] })
     ch_multiqc_files = ch_multiqc_files.mix(BWAMEM2_INDEX.out.tool_params.collect { it[1] })
@@ -261,6 +294,10 @@ workflow GENOME_QC {
     ch_multiqc_files = ch_multiqc_files.mix(MERQURY_MERQURY.out.tool_params.collect { it[1] })
     ch_multiqc_files = ch_multiqc_files.mix(GFASTATS.out.tool_params.collect { it[1] })
     ch_multiqc_files = ch_multiqc_files.mix(SEQKIT_STATS.out.tool_params.collect { it[1] })
+    ch_multiqc_files = ch_multiqc_files.mix(MEASURE_KMER_COVERAGE.out.tool_params.collect { it[1] })
+    ch_multiqc_files = ch_multiqc_files.mix(SUMMARISE_KMER_COVERAGE.out.tool_params.collect { it[1] })
+    ch_multiqc_files = ch_multiqc_files.mix(GENOMESCOPE_RESEED.out.tool_params.collect { it[1] })
+    ch_multiqc_files = ch_multiqc_files.mix(RECHECK_GENOME_SIZE.out.tool_params.collect { it[1] })
     ch_versions = ch_versions.mix(BUSCO_BUSCO.out.versions.first())
     ch_versions = ch_versions.mix(EXTRACT_BUSCO_SEQUENCES.out.versions.first())
     ch_versions = ch_versions.mix(BWAMEM2_INDEX.out.versions.first())
@@ -275,6 +312,9 @@ workflow GENOME_QC {
     merqury_results = ch_merqury_results // channel: tuple val(meta), path("*.completeness.stats"), path("${prefix}.qv")
     gfastats_results = ch_gfastats_results // channel: tuple val(meta), path("*.assembly_summary")
     seqkit_stats_results = ch_seqkit_stats_results // channel: tuple val(meta), path("*.seqkit_stats.tsv")
+    coverage_summary = ch_coverage_summary_final // channel: tuple val(meta), path("*_coverage_summary.json")
+    kmer_depth = ch_kmer_depth // channel: tuple val(meta), path("*_kmer_depth.json")
+    reseed_decision = ch_reseed_decision // channel: tuple val(meta), path("*_reseed_decision.json")
     multiqc_files = ch_multiqc_files             // channel: [ path(multiqc_files) ]
     multiqc_inputs = ch_sample_multiqc_inputs    // channel: [ tuple(meta), path(multiqc_file) ]
     versions = ch_versions              // channel: [ path(versions.yml) ]

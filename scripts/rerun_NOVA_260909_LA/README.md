@@ -14,11 +14,16 @@ separate causes, all now fixed in the pipeline:
    `--min_len 3000`. REVIEW contigs between 1 and 3 kb escaped both: **818 Mb across the
    run**, up to 12% of individual assemblies. They were not ambiguous - OG2630's REVIEW
    set is taxonomically indistinguishable from its EXCLUDE set, near-entirely prokaryotic.
-2. **GenomeScope's `-m 1000` truncated the histogram.** 48 of 78 samples had more than
-   30% of their k-mer mass above that cutoff and thrown away, which broke the fit and
-   pushed the size estimate down by up to 10x. The bad size then propagated into
-   `theoretical_coverage`, and OG2617 was published as `"coverage_status": "EXCELLENT"` on
-   a 48% model fit.
+2. **The genome size estimates were not trustworthy, and the gate on them was worse.**
+   OG2617 was published as `"coverage_status": "EXCELLENT"` on what the pipeline reported
+   as a 48% model fit.
+
+   The first attempt at this raised GenomeScope's `-m` from 1000 to 10000, on the theory
+   that the low ceiling was discarding host k-mer mass. **That was wrong and has been
+   reverted** -- see "The -m 10000 detour" below. The real defects were in the reliability
+   gate, and they are fixed: it now thresholds the fit GenomeScope actually reports rather
+   than a residual that moves with `-m`, detects a k-mer peak instead of inventing one,
+   and cross-checks the size against the assembly.
 3. **The sponges are microbially dominated.** For 25 of them FCS-GX inferred a
    *prokaryotic* primary division, i.e. it judged bacteria to be the dominant organism in
    the assembly. Screening contigs after assembly cannot undo a host/symbiont
@@ -30,12 +35,14 @@ separate causes, all now fixed in the pipeline:
 ./00_snapshot_baseline.sh          # required first: the tiers publish over the originals
 ./tier3_fish_regression.sh        # the control. STOP HERE if it regresses.
 ./99_compare_to_baseline.sh tier3
+./97_genomescope_control.sh tier3  # the other half of the control: tier 3 skips GenomeScope
 ./tier2_resume.sh                 # the two that never finished
 ./6_kraken2_sanity_check.sh       # required before tier 4
 ./tier4_sponges_full.sh           # the expensive tier, where the gains are
 ./99_compare_to_baseline.sh tier4
 ./tier5_refit_and_decon.sh        # cheap: refit sizes, re-filter, rescore BUSCO
 ./99_compare_to_baseline.sh tier5
+./tier6_failed_libraries_qc.sh    # the four failed libraries: verdicts only, no re-filter
 ```
 
 Tier 1 is not a script: see `tier1_no_rerun.txt`.
@@ -44,12 +51,40 @@ Tier 1 is not a script: see `tier1_no_rerun.txt`.
 
 | tier | n | what it does | cost |
 |---|---|---|---|
-| 1 | 4 | **Nothing.** Failed libraries, request resequencing. See `tier1_no_rerun.txt`. | none |
+| 1 | 4 | **No re-assembly and no re-filtering.** Failed libraries, request resequencing. See `tier1_no_rerun.txt`. Tier 6 now runs QC over them so the resequencing case is recorded as numbers rather than prose. | none |
 | 1b | 1 | **Nothing yet.** OG3009 needs a sample-identity check first. | none |
 | 2 | 2 | Resume OG2625 and OG3036, which died mid-decontamination. | low |
 | 3 | 9 | Fishes, decontamination + QC only. The regression control. | low |
 | 4 | 23 | Sponges + OG2917: full re-run from fastp reads **with kraken2**. | high |
 | 5 | 41 | Refit GenomeScope, re-filter, rescore BUSCO. No re-assembly. | medium |
+| 6 | 4 | The failed libraries from tier 1. QC and gate only, no re-filter, no re-assembly: gives them the reliability verdict and measured coverage every other sample now has. OG3009 stays out until its identity is settled. | low |
+
+## Running tiers concurrently
+
+Every tier launches from its own directory, `${OUT}/.nf_<tier>`, seeded once from the
+run's original `.nextflow`. That gives each tier its own history, cache database and
+session, which is what makes running them all at once safe -- Nextflow opens the cache for
+writing, so two tiers sharing one was a hazard independent of anything else.
+
+It also fixes resume. `_run_tier.sh` used to pass a bare `-resume`, which resolves to the
+last run in the launch directory's history; with every tier launching from `$OUT` that was
+usually a *different tier*. Tier 3 relaunched against tier 4's index and recomputed all
+nine samples from scratch, while tier 5 landed on a cache that happened to fit and reused
+860 tasks. Each tier now resumes its own last successful run by name, and prints which one
+in the banner before starting:
+
+```
+ resuming:     NOVA_260909_LA_tier3_20260914_142712
+```
+
+Override with `RESUME_RUN=<run name>` to resume something specific, or `RESUME_RUN=none`
+to force a clean run.
+
+Three outputs are run-level rather than per-sample and would otherwise be written by every
+tier at once: `multiqc/`, `coverage_summary/` and `pipeline_info/software_versions.yml`.
+Each tier writes them under its own `--report_subdir <tier>`, so nothing races. They each
+describe only that tier's samples, so regenerate a single run-wide set over all 80 once the
+tiers are done.
 
 ## Two things that will bite you
 
@@ -93,16 +128,43 @@ no FASTA/FASTQ) and `_run_tier.sh` refuses to run without that snapshot.
 - **tier 4**: contig count falls several-fold and N50 rises. If N50 stays near 1000 bp
   after clean reads go in, that sample is coverage-limited as well and belongs on the
   resequencing list rather than in another re-run.
-- **tier 5**: GenomeScope sizes rise substantially (OG3037's 123 Mb estimate against a
-  1.27 Gb assembly is the clearest test), and samples whose fit is still bad now report
-  `coverage_status: UNRELIABLE_GENOME_SIZE_ESTIMATE` with a reason in
-  `genome_size_flags` instead of a confident grade.
+- **tier 5**: samples whose fit is bad report `coverage_status:
+  UNRELIABLE_GENOME_SIZE_ESTIMATE` with a specific reason in `genome_size_flags` instead
+  of a confident grade. Do **not** expect the size estimates themselves to move much:
+  nothing in this remediation improves a GenomeScope fit, it only stops the pipeline
+  presenting a bad one as fact.
 
-Validated against all 80 samples of the original run, the reliability gate passes 18 and
-flags 62, including every sample identified as broken, with a specific reason each:
-`inverted_model_fit_bounds` (OG2624, OG2647), `degenerate_model_fit` (OG2639, OG2959,
-OG2983), `implausible_heterozygosity` (OG2653), `model_fit_below_50pc`, and
-`kmer_peak_disagrees_with_fitted_coverage`. All five of the best fishes pass.
+Validated against all 80 samples with `./96_gate_dryrun.sh`, the gate passes 20 and flags
+60, each with a specific reason: `no_kmer_peak` (57 -- these libraries have no genomic
+mode at all, which means resequence), `genome_size_disagrees_with_assembly` (27),
+`implausible_model_bias` (10), `degenerate_model_fit` (9), `model_fit_below_50pc` (5),
+`non_finite_genome_size` (4), `inverted_model_fit_bounds` (4). Seven of the nine fishes
+pass; the two that do not are OG2647 (a diverged fit reporting 36 Mb against a 904 Mb
+assembly) and OG3074 (bias 19.2 at kmercov 71.2, no k-mer peak).
+
+## The -m 10000 detour
+
+Worth reading before anyone proposes it again. `98_genomescope_m_sweep.sh` refit 27
+histograms at 1000, 3000, 10000 and adaptive multiples of each sample's fitted coverage:
+
+- **The size estimate never plateaus.** It climbs monotonically with the ceiling (median
+  1.13x from 1000 to 10000, up to 1.81x for OG2940). There is no coverage above which the
+  extra mass stops arriving, so there is no principled place to stop. That is a continuous
+  contamination and error tail, not repeat structure.
+- **All of it lands in repeat length.** Genome Unique Length, the component the model
+  constrains, does not move: across tier 5 it went -2.4% while repeat length went +54.8%.
+- **Cleaning the reads is the lever, not the ceiling.** The identical `-m` change moved
+  repeat length +54.8% on raw reads and -1.6% on kraken2-cleaned reads.
+- **It broke one sample outright.** OG3043's kmercov collapsed from 40.7 to 0.6 and its
+  model fit from 88% to 34% above `-m 1000`.
+- **It made the gate meaningless.** The gate thresholded the *lower* of GenomeScope's two
+  Model Fit values, which is a residual over whatever `-m` admitted and so falls whenever
+  the ceiling rises. 57 of 64 re-run samples were flagged, including OG2906 at a real fit
+  of 98.6%. The upper value -- what the gate uses now -- was identical to two decimal
+  places at every `-m` for 20 of 27 histograms, and moved only where a fit genuinely broke.
+
+`genomescope2_m` is back to 1000 and remains a parameter. Raise it only for a specific
+sample with evidence its genomic signal is truncated, not as a default.
 
 ## Open decisions for you
 

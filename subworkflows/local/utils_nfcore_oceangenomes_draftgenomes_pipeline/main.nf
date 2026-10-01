@@ -225,3 +225,72 @@ def methodsDescriptionText(mqc_methods_yaml) {
     return description_html.toString()
 }
 
+
+//
+// Which BUSCO lineage a sample's taxonomic class should be scored against.
+//
+// This lived inline in GENOME_QC, which was fine while BUSCO only ever ran live. It is
+// shared now because the precomputed branch has to reach the SAME answer: samples re-run
+// against a different lineage keep both result sets on disk, and choosing between them
+// means knowing which lineage this run would have used. Two copies of this ladder would
+// drift, and the failure mode of drift is silently scoring a sample against the wrong
+// lineage -- exactly what the shared version exists to prevent.
+//
+// Ray-finned fish get the actinopterygii db, other vertebrates the vertebrata db, and the
+// invertebrate classes below their own odb12 lineage. Anything unlisted falls back to
+// metazoa, which is the safe default now that we run more inverts than fish. To route a
+// new class, add its name to one of the lists.
+//
+// Ascidiacea (tunicates) is deliberately absent from ACTI/VERT: a chordate but not a
+// vertebrate, so it correctly falls through to metazoa. There is no echinoderm or sponge
+// lineage in odb12 either, so Asteroidea, Ophiuroidea, Demospongiae, Hexactinellida and
+// Porifera stay on metazoa by necessity, not oversight. Do not add them to a list
+// expecting a narrower dataset to exist.
+//
+def buscoDbForClass(meta) {
+    def BUSCO_ACTI_CLASSES = ['Actinopteri', 'Actinopterygii', 'Teleostei']
+    def BUSCO_VERT_CLASSES = [
+        'Chondrichthyes', 'Mammalia', 'Aves', 'Reptilia', 'Amphibia',
+        'Myxini', 'Hyperoartia', 'Coelacanthimorpha', 'Dipneusti', 'Lepidosauria', 'Testudines'
+    ]
+    def BUSCO_CRUSTACEA_CLASSES = ['Malacostraca', 'Thecostraca', 'Branchiopoda', 'Copepoda', 'Ostracoda', 'Maxillopoda']
+    def BUSCO_MOLLUSCA_CLASSES = ['Gastropoda', 'Bivalvia', 'Polyplacophora', 'Cephalopoda', 'Scaphopoda', 'Monoplacophora']
+    def BUSCO_ANTHOZOA_CLASSES = ['Anthozoa']
+    // Arthropod classes with no narrower odb12 lineage of their own. Insecta and the
+    // arachnids have dedicated datasets, so they are not routed here.
+    def BUSCO_ARTHROPODA_CLASSES = ['Pycnogonida', 'Merostomata', 'Chilopoda', 'Diplopoda', 'Symphyla', 'Pauropoda']
+
+    if ( !meta.class || meta.class.toString().toLowerCase() == 'unknown' ) {
+        throw new IllegalArgumentException(
+            "Sample '${meta.id}' has no taxonomic class (got '${meta.class}'), so no BUSCO " +
+            "lineage can be chosen. Load the missing taxonomy with " +
+            "scripts/taxonomy/load_taxonomy.py and regenerate the samplesheet."
+        )
+    }
+
+    // Narrower lineages are tested first: Malacostraca must reach crustacea rather than
+    // the broader arthropoda fallback.
+    if ( meta.class in BUSCO_ACTI_CLASSES ) {
+        return params.busco_acti_db
+    } else if ( meta.class in BUSCO_VERT_CLASSES ) {
+        return params.busco_vert_db
+    } else if ( meta.class in BUSCO_CRUSTACEA_CLASSES && params.busco_crustacea_db ) {
+        return params.busco_crustacea_db
+    } else if ( meta.class in BUSCO_MOLLUSCA_CLASSES && params.busco_mollusca_db ) {
+        return params.busco_mollusca_db
+    } else if ( meta.class in BUSCO_ANTHOZOA_CLASSES && params.busco_anthozoa_db ) {
+        return params.busco_anthozoa_db
+    } else if ( meta.class in BUSCO_ARTHROPODA_CLASSES && params.busco_arthropoda_db ) {
+        return params.busco_arthropoda_db
+    }
+    return params.busco_metazoa_db
+}
+
+//
+// The four-letter tag BUSCO output filenames carry, e.g. metazoa_odb12 -> "meta".
+// Must stay identical to the db_used expression in modules/nf-core/busco/busco/main.nf,
+// which is what actually names the files.
+//
+def buscoLineageTag(busco_db) {
+    return busco_db.toString().tokenize('/').last().take(4)
+}

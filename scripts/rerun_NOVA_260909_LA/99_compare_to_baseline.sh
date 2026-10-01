@@ -41,23 +41,46 @@ def seqkit(d):
             return int(r[4].replace(',', '')), int(r[3].replace(',', '')), int(r[12].replace(',', ''))
     return None, None, None
 
-def gs_fit(d):
+def _summary(d):
     for f in glob.glob(f"{d}/*_summary.txt") + glob.glob(f"{d}/kmers/*genomescope/*_summary.txt"):
-        for line in open(f):
-            if line.strip().startswith("Model Fit"):
-                v = re.findall(r"(-?[0-9.]+)%", line)
-                if v:
-                    return float(v[0])
+        if "genomescope" in os.path.basename(f) or "Model Fit" in open(f).read():
+            return f
     return None
 
+def _bound(token):
+    """A GenomeScope bound. "Inf" comes back as None -- never as the other bound. The
+    earlier version of this matched only digits, so a diverged fit (OG3043 reported
+    "2,499,788 bp - Inf bp") silently displayed its LOWER bound as the estimate."""
+    if re.fullmatch(r"-?(inf|na|nan)", token.strip(), flags=re.I):
+        return None
+    try:
+        return float(token.replace(",", ""))
+    except ValueError:
+        return None
+
+def _prop(d, label, which):
+    f = _summary(d)
+    if not f:
+        return None
+    m = re.search(rf"^{label}\s+(\S+)\s*(?:bp)?\s+(\S+)\s*(?:bp)?\s*$",
+                  open(f).read(), flags=re.M)
+    if not m:
+        return None
+    return _bound(m.group(1 if which == "min" else 2).rstrip("%"))
+
+# The UPPER model fit is the fit to the modelled region and is what the gate thresholds.
+# The lower one is a residual over the -m window: it falls whenever that ceiling rises,
+# which is exactly the artifact that made a parameter change look like a model regression.
+def gs_fit(d):
+    return _prop(d, "Model Fit", "max")
+
 def gs_size(d):
-    for f in glob.glob(f"{d}/*_summary.txt") + glob.glob(f"{d}/kmers/*genomescope/*_summary.txt"):
-        for line in open(f):
-            if line.strip().startswith("Genome Haploid Length"):
-                v = re.findall(r"([0-9,]+) bp", line)
-                if v:
-                    return int(v[-1].replace(',', ''))
-    return None
+    return _prop(d, "Genome Haploid Length", "max")
+
+# Unique length is the component the model actually constrains. When a size estimate moves
+# but this does not, the extra basepairs came out of the histogram tail, not the genome.
+def gs_unique(d):
+    return _prop(d, "Genome Unique Length", "max")
 
 def cov_status(d):
     for f in glob.glob(f"{d}/*_coverage_summary.json") + glob.glob(f"{d}/coverage/*_coverage_summary.json"):
@@ -65,7 +88,8 @@ def cov_status(d):
         return j.get("coverage_status"), j.get("genome_size_flags", "")
     return None, ""
 
-hdr = f"{'SAMPLE':<8} {'BUSCO_C':>15} {'ASM_Mb':>17} {'N50':>15} {'CTGS':>17} {'GS_fit':>15} {'GS_Mb':>17}"
+hdr = (f"{'SAMPLE':<8} {'BUSCO_C':>15} {'ASM_Mb':>17} {'N50':>15} {'CTGS':>17} "
+       f"{'GS_fitmax':>15} {'GS_uniq_Mb':>17} {'GS_Mb':>17}")
 print(hdr)
 print("-" * len(hdr))
 
@@ -73,6 +97,9 @@ def cell(before, after, fmt="{:.1f}", width=15):
     b = fmt.format(before) if before is not None else "NA"
     a = fmt.format(after) if after is not None else "NA"
     return f"{b}->{a}".rjust(width)
+
+def mb(value):
+    return value / 1e6 if value else None
 
 for s in samples:
     bd = f"{baseline}/{s}"
@@ -88,7 +115,8 @@ for s in samples:
           f"{cell(b_n50, a_n50, '{:.0f}')}"
           f"{cell(b_ctg, a_ctg, '{:.0f}', 17)}"
           f"{cell(gs_fit(bd), gs_fit(ad))}"
-          f"{cell(gs_size(bd)/1e6 if gs_size(bd) else None, gs_size(ad)/1e6 if gs_size(ad) else None, width=17)}")
+          f"{cell(mb(gs_unique(bd)), mb(gs_unique(ad)), '{:.0f}', 17)}"
+          f"{cell(mb(gs_size(bd)), mb(gs_size(ad)), '{:.0f}', 17)}")
 
 print()
 print("Coverage verdicts after the re-run:")

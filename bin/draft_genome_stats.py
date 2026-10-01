@@ -28,6 +28,18 @@ FAMILY_COLUMNS = {
     "assembly": (
         "homozygosity", "heterozygosity", "genomesize", "repeatsize",
         "uniquesize", "modelfit", "errorrate",
+        # Both values GenomeScope reports, not just the right-hand column. See
+        # parse_genomescope for why modelfit_allkmers is not called modelfit_min.
+        "homozygosity_min", "heterozygosity_min", "genomesize_min",
+        "repeatsize_min", "uniquesize_min", "modelfit_allkmers",
+        # The verdict, not just the numbers. A stored genome size nobody can audit is how
+        # a 48% fit got published as "EXCELLENT" in the first place.
+        "genome_size_reliable", "genome_size_flags", "kmercov", "lambda_depth",
+        # How big the host genome is, and how much of the assembly is the animal, from
+        # per-contig read depth rather than a k-mer peak. Both are lower bounds: a
+        # symbiont at the host's own depth counts as host, a high-copy host repeat does
+        # not. The only answer available below about 10x host coverage.
+        "host_assembly_size", "host_assembly_fraction",
     ),
     "decontamination": (
         "num_contigs_mitochondrion", "num_contigs_plastid",
@@ -56,16 +68,22 @@ FAMILY_COLUMNS = {
 FLOAT_COLUMNS = {
     "raw_q20_rate", "raw_q30_rate", "raw_gc_content", "q20_rate",
     "q30_rate", "gc_content", "homozygosity", "heterozygosity",
-    "modelfit", "errorrate", "complete", "single_copy", "multi_copy",
+    "modelfit", "errorrate", "modelfit_allkmers", "homozygosity_min",
+    "heterozygosity_min", "lambda_depth", "kmercov", "host_assembly_fraction",
+    "complete", "single_copy", "multi_copy",
     "fragmented", "missing", "percent_gaps", "scaffold_n50",
     "internal_stop_codon_percent", "qv", "error", "completeness",
     "gfa_gc_content_percent",
 }
 
-# These GenomeScope percentage columns are NUMERIC(..., 2) in draft_genomes.
-# PostgreSQL therefore rounds source values to two decimal places on insert.
+# These GenomeScope percentage columns were NUMERIC(5,2) in draft_genomes, which rounded
+# on insert: 0.381807% and 0.421044% both became ~0.4, so the low-heterozygosity fishes
+# were indistinguishable. They are NUMERIC(8,4) now. The set is kept because rows written
+# before that migration are still rounded to two places, and the verification tolerance
+# has to allow for it until they are backfilled again.
 TWO_DECIMAL_COLUMNS = {
     "homozygosity", "heterozygosity", "modelfit", "errorrate",
+    "homozygosity_min", "heterozygosity_min", "modelfit_allkmers",
 }
 
 BUSCO_KEYMAP = {
@@ -198,6 +216,26 @@ def parse_fastp(path: PathLike) -> dict[str, Any]:
 
 
 def parse_genomescope(path: PathLike) -> dict[str, Any]:
+    """Both values GenomeScope reports for each property, not just the right-hand one.
+
+    The summary prints two columns under a "min   max" header, and until now only the
+    second reached the database. For the length and heterozygosity rows the pair really is
+    a lower and upper bound, so half of an interval was being dropped -- OG2949 spans
+    331-1113 Mb and only 1113 was stored.
+
+    Model Fit is different and worse. GenomeScope's own R source emits two unrelated
+    statistics there:
+
+        sprintf(format_column_2, percentage_format(model_fit_allscore[1])),
+        sprintf(format_column_3, percentage_format(model_fit_fullscore[1]))
+
+    allscore is the share of every retained k-mer the model accounts for; fullscore is the
+    fit within the model's own region. They are not bounds, which is why they can invert
+    (OG2647 82/25). Storing only fullscore meant a sample could be recorded as an 84% fit
+    while the model explained 17% of its k-mers -- OG2644 exactly. The columns are named
+    `modelfit` (fullscore, unchanged) and `modelfit_allkmers` rather than min/max, so the
+    schema does not inherit GenomeScope's mislabel.
+    """
     lines = Path(path).read_text(encoding="utf-8").splitlines()
     source = None
     for wanted in ("name prefix", "input file"):
@@ -210,29 +248,69 @@ def parse_genomescope(path: PathLike) -> dict[str, Any]:
         if source:
             break
     og_id, seq_date = ids_from_dot_name(source or "")
+
+    # label prefix -> (column for the first value, column for the second)
     targets = {
-        "homozygous": ("homozygosity", _float),
-        "heterozygous": ("heterozygosity", _float),
-        "genome haploid length": ("genomesize", _float),
-        "genome repeat length": ("repeatsize", _float),
-        "genome unique length": ("uniquesize", _float),
-        "model fit": ("modelfit", _float), "read error rate": ("errorrate", _float),
+        "homozygous": ("homozygosity_min", "homozygosity"),
+        "heterozygous": ("heterozygosity_min", "heterozygosity"),
+        "genome haploid length": ("genomesize_min", "genomesize"),
+        "genome repeat length": ("repeatsize_min", "repeatsize"),
+        "genome unique length": ("uniquesize_min", "uniquesize"),
+        "model fit": ("modelfit_allkmers", "modelfit"),
+        # GenomeScope prints the same error rate twice; one column is enough.
+        "read error rate": (None, "errorrate"),
     }
-    values = {column: None for column, _ in targets.values()}
+    values: dict[str, Any] = {
+        column: None for pair in targets.values() for column in pair if column
+    }
     for line in lines:
         columns = re.split(r"\s{2,}", line.strip())
         if len(columns) < 3:
             continue
         label = columns[0].lower()
-        for prefix, (column, parser) in targets.items():
+        for prefix, (first, second) in targets.items():
             if label.startswith(prefix):
-                values[column] = parser(columns[-1].replace("bp", ""))
+                if first:
+                    values[first] = _float(columns[-2].replace("bp", ""))
+                values[second] = _float(columns[-1].replace("bp", ""))
                 break
-    missing = [key for key, value in values.items() if value is None]
-    if missing:
-        raise ValueError(f"{path}: missing GenomeScope fields: {', '.join(missing)}")
-    for key in ("genomesize", "repeatsize", "uniquesize"):
-        values[key] = int(round(values[key]))
+
+    # A diverged model writes "Inf bp" for a bound, which _float turns into None. That
+    # used to fail the whole record and the sample got no GenomeScope row at all (OG3043).
+    # Store the finite side and leave the other NULL -- the reliability flags carry the
+    # reason, and a partial row beats no row.
+    required = ("genomesize", "genomesize_min")
+    if all(values.get(key) is None for key in required):
+        raise ValueError(f"{path}: no finite genome size in either column")
+    for key in ("genomesize", "genomesize_min", "repeatsize", "repeatsize_min",
+                "uniquesize", "uniquesize_min"):
+        if values.get(key) is not None:
+            values[key] = int(round(values[key]))
+    return _record(og_id, seq_date, values)
+
+
+def parse_coverage_summary(path: PathLike) -> dict[str, Any]:
+    """The reliability verdict from a published *_coverage_summary.json.
+
+    Stored alongside the GenomeScope numbers because the numbers on their own cannot be
+    audited later: `genomesize` reads the same whether the fit was trustworthy or not.
+    `lambda_depth` is the coverage measured from read depth over single-copy BUSCO genes,
+    so a row carries both what GenomeScope fitted and what the alignments say.
+    """
+    with open(path, encoding="utf-8") as handle:
+        data = json.load(handle)
+    og_id, seq_date = ids_from_dot_name(Path(path).name)
+    values = {
+        "genome_size_reliable": data.get("genome_size_reliable"),
+        "genome_size_flags": data.get("genome_size_flags") or None,
+        # One canonical name, read in one place. `fitted_kmer_coverage` is the legacy
+        # spelling: summaries published before the rename carry only that, and the
+        # --skip_genome_assembly tiers read exactly such files.
+        "kmercov": _float(data.get("kmercov") or data.get("fitted_kmer_coverage")),
+        "lambda_depth": _float(data.get("lambda_depth")),
+        "host_assembly_size": _int(data.get("host_assembly_size")),
+        "host_assembly_fraction": _float(data.get("host_assembly_fraction")),
+    }
     return _record(og_id, seq_date, values)
 
 

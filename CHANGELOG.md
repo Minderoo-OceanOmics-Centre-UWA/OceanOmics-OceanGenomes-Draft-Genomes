@@ -44,15 +44,91 @@ Generalised from "fish + corals" to all invertebrates.
   metazoa fallback. Note there is no echinoderm or sponge lineage in odb12, so
   Asteroidea, Ophiuroidea, Demospongiae, Hexactinellida and Porifera stay on metazoa by
   necessity. Unset lineages fall back to metazoa, so this is backwards compatible.
-- A reliability gate on the GenomeScope size estimate. `CALCULATE_SEQUENCING_COVERAGE`
-  now takes the GenomeScope model file and the meryl histogram, and flags an estimate as
-  unreliable on inverted model-fit bounds, a fit below `--genomescope_min_model_fit`,
-  implausible heterozygosity, a degenerate single-solution fit, no genomic k-mer peak, or
-  a peak that disagrees with the fitted `kmercov` by more than
-  `--genomescope_max_peak_kmercov_ratio`. When flagged it reports
-  `coverage_status: UNRELIABLE_GENOME_SIZE_ESTIMATE` with reasons in `genome_size_flags`
-  instead of a confident grade. Validated against all 80 samples of NOVA_260909_LA: 18
-  pass, 62 are flagged with a specific reason, and the five best fishes all pass.
+- A reliability gate on the GenomeScope size estimate, in `bin/genomescope_reliability.py`
+  so it can be unit tested and replayed offline over published results.
+  `CALCULATE_SEQUENCING_COVERAGE` takes the GenomeScope model file and the meryl
+  histogram, and flags an estimate as unreliable on inverted model-fit bounds, a fit below
+  `--genomescope_min_model_fit`, implausible heterozygosity, a degenerate fit, a bias
+  coefficient above `--genomescope_max_model_bias`, no genomic k-mer peak, a peak outside
+  `--genomescope_min/max_peak_kmercov_ratio` of the fitted `kmercov`, or a size outside
+  `--genomescope_min/max_assembly_ratio` of the decontaminated assembly. When flagged it
+  reports `coverage_status: UNRELIABLE_GENOME_SIZE_ESTIMATE` with reasons in
+  `genome_size_flags` instead of a confident grade. Across all 80 NOVA_260909_LA samples:
+  20 pass, 60 are flagged with a specific reason, seven of the nine fishes pass.
+- `RECHECK_GENOME_SIZE` (`modules/local/coverage/recheck`), which runs during QC and adds
+  the one check the k-mer histogram cannot make: whether the size estimate agrees with the
+  assembly built from the same reads. `CALCULATE_SEQUENCING_COVERAGE` runs before MEGAHIT,
+  so its summary is provisional (`"assembly_cross_check": "pending"`) and this republishes
+  it as the final verdict. It is what catches a model that converged cleanly onto
+  something that is not the genome: OG3037 fitted at 86% and reported 209 Mb against a
+  1.26 Gb assembly, and no fit statistic objected.
+- `MEASURE_KMER_COVERAGE` (`modules/local/coverage/kmer_depth`), which measures haploid
+  k-mer coverage from read depth over Complete BUSCO genes using the alignments the
+  pipeline already makes. It is an estimate of the quantity GenomeScope fits, arrived at
+  independently of the k-mer histogram and of the assembly's total size, so the two can
+  finally be compared. On NOVA_260909_LA it agrees with GenomeScope within 8% on all eight
+  samples whose fits were independently trustworthy (ratio 0.92-1.00). New flags
+  `fitted_coverage_disagrees_with_read_depth`, `assembly_not_dominated_by_host` and
+  `host_coverage_too_low`, plus `--kmer_depth_*` parameters.
+- The module also reports host single-copy depth against assembly-wide depth. That ratio
+  separates "GenomeScope fitted badly" from "the host is a minority of this assembly":
+  OG3037's BUSCO genes sit at 5.8x against an assembly-wide 31.6x while 95-99% of reads
+  map, so its fitted kmercov of 39 was not modelling the host at all. No fit statistic can
+  see that.
+- `GENOMESCOPE_RESEED` (`modules/local/genomescope_reseed`), which refits GenomeScope with
+  the measured lambda as `-l` when the first fit was flagged, and keeps the result only if
+  `model_fit_full` improves AND `kmercov` moves toward that measurement. Both conditions,
+  because a reseed that lands on the measured coverage while the fit degrades has found a
+  different optimum rather than a better one.
+
+  An earlier version of this entry credited OG2617 with "96.7% at kmercov 8.3 ... against
+  a measured 9.2", which overstated what reseeding achieves. Per the l-sweep, 96.7% is the
+  `lhalf` seed (8.298); the `ldepth` seed at the measured lambda gave **77.8%**, worse than
+  the original 83.5%. The rule this module implements seeds at the measured lambda, so it
+  would have DECLINED OG2617's reseed even once the reseed was attempted. What the module
+  buys is the attempt and the recorded reason, not a rescued fit.
+- **Host genome size from read depth**, in `SUMMARISE_KMER_COVERAGE`. The k-mer route to
+  a genome size collapses below about 10x host coverage: of the 32 NOVA_260909_LA samples
+  with measured host lambda under 10, not one produced an estimate within 2x of its own
+  assembly, and for many the assembly is largely not the animal (OG2634's is 46% symbiont
+  by depth). Partitioning the assembly by per-contig depth around the host's own depth
+  answers both questions, needs no k-mer peak and runs on data the pipeline already has:
+  `MEASURE_KMER_COVERAGE` adds one `samtools coverage` pass and `bin/kmer_depth_lambda.py`
+  does the arithmetic. New keys `host_assembly_size`, `host_assembly_fraction`,
+  `symbiont_assembly_size`, `low_depth_assembly_size`, `host_contig_count` and
+  `partition_status`, new `--host_depth_window` (2.0) and `--host_depth_min_contig` (500),
+  a MultiQC row, and two new `draft_genomes` columns.
+
+  The clean control reproduces GenomeScope to 4%: OG2906 gives 344.6 Mb at 91.8% host
+  against a fitted 358.9 Mb. OG2634, where the fit has nothing to work with, gives
+  207.0 Mb at 63.2% host with 13.6% of the assembly above host depth.
+
+  Those OG2634 figures supersede the 168.2 Mb / 51.3% of the design note, which was
+  computed with `idxstats` (reads x read length / contig length) rather than
+  `samtools coverage`. That approximation credits a contig the FULL length of every read
+  recorded against it, but only 55.3% of a mapped read's bases actually align on this
+  sample -- the rest is soft-clipped -- so it overstates per-contig depth by 1.81x on
+  average and 2.2x on the sub-700 bp contigs this 460k-contig assembly is mostly made of.
+  Worse, it overstated only the CONTIG depths: the host depth defining the band came from
+  `bedcov`, which counts aligned bases, so the two sides of the comparison were in
+  different units and 100 Mb of host mass was pushed above the band. Reproducing the
+  approximation exactly reproduces the design note's numbers (170.5 Mb / 52.0% host,
+  147.9 Mb / 45.1% above), which is how this was confirmed. MAPQ filtering accounts for
+  only 7 Mb of the difference, and secondary alignments and coverage gaps for none of it
+  -- the clean control barely moves (345.7 -> 344.6 Mb) because a well-assembled sample
+  has little soft-clipping to over-count.
+
+  It is a **lower bound** in both directions and is described as one everywhere it
+  surfaces: a symbiont sitting at the host's own depth counts as host, and a high-copy
+  host repeat counts as symbiont.
+- `scripts/rerun_NOVA_260909_LA/95_depth_lambda.sh` and `94_genomescope_l_sweep.sh`, the
+  offline investigations those two modules came out of.
+- `scripts/rerun_NOVA_260909_LA/96_gate_dryrun.sh` replays the gate over every published
+  sample in seconds, so a threshold change can be evaluated against a whole run without
+  re-running it. `97_genomescope_control.sh` refits GenomeScope from existing histograms
+  and is the GenomeScope half of the tier-3 regression control, which
+  `tier3_fish_regression.sh` cannot provide because it skips assembly.
+  `98_genomescope_m_sweep.sh` sweeps `--max_kmercov` over existing histograms.
 - `scripts/rerun_NOVA_260909_LA/`: tiered re-run launchers, per-tier samplesheets, a
   baseline snapshot script and a before/after comparison for remediating that run.
 
@@ -76,6 +152,38 @@ Generalised from "fish + corals" to all invertebrates.
   no class, the phylum name is written into `species.class` so the column is never null.
 
 ### `Changed`
+
+- **`--kmer_depth_max_ratio` lowered from 2.0 to 1.5.** 2.0 is the worst possible place for
+  that boundary: fitting the homozygous peak as heterozygous or the reverse is
+  GenomeScope's characteristic failure, so a threshold at exactly 2.0 sits on top of the
+  most common failure mode, and four NOVA_260909_LA samples cluster just underneath it
+  (OG3000 1.99, OG2617 1.95, OG2648 1.95, OG3065 1.90). The eight independently trusted
+  fits agree with the measurement to within 8.3% (0.917-0.996), so 1.5 keeps a wide margin
+  over everything known to be right. Blast radius: eight samples newly flag, six of them
+  already `UNRELIABLE_GENOME_SIZE_ESTIMATE` for other reasons; only OG2617 and OG3065
+  change verdict, and 21 reliable becomes 19.
+- **The assembly cross-check compares against the host mass, not the whole assembly.**
+  GenomeScope estimates the host genome, so `genome_size_disagrees_with_assembly` was
+  dividing a host-only estimate by a total assembly that can be half symbiont -- the wrong
+  denominator in exactly the samples the check exists for. Where the depth partition
+  succeeded it now uses `host_assembly_size`, and the summary records which was used in
+  `assembly_ratio_basis` (`host`/`total`) with the number itself in
+  `assembly_ratio_denominator`, so a published ratio can always be reproduced.
+- **A reseed is attempted on the lambda ratio as well as the verdict.**
+  `genomescope_reseed_decide.py plan` gated only on `genome_size_reliable`, taken from the
+  PROVISIONAL summary -- computed before the assembly exists, so blind to both the
+  assembly cross-check and the lambda ratio. OG2617 recorded "no reseed attempted" while
+  its fitted/measured coverage was 1.954. It now also fires when
+  `kmercov_over_lambda_depth` (in either direction) exceeds `--kmer_depth_max_ratio`.
+- `gfastats` moved from `modules/nf-core/` to `modules/local/` and dropped from
+  `modules.json`, for the same reason megahit was: it has diverged (genome size parsed
+  from a staged GenomeScope summary, `meta.assembly_prefix`, a tool_params row) and
+  `nf-core modules update` would have reverted all of it silently. Its nf-core test went
+  with it -- it drove an eight-input interface this module has never had.
+- `fitted_kmer_coverage` renamed to `kmercov` in the coverage summary, one name for one
+  number. The old spelling is written alongside it for one release and still read by
+  `parse_coverage_summary`, which is the single parser: summaries published before the
+  rename carry only the old key, and the `--skip_genome_assembly` tiers read exactly those.
 
 - `megahit` moved from `modules/nf-core/` to `modules/local/` and dropped from
   `modules.json`. It had diverged far enough (renamed output, tool_params row, the whole
@@ -102,16 +210,127 @@ Generalised from "fish + corals" to all invertebrates.
 - tiara now runs at `--min_len 1000` (`--tiara_min_len`) instead of its 3000 default. On
   these megahit assemblies the old floor screened as little as 1.3% of an assembly's
   bases (OG3037), versus 84% for a well-covered fish.
-- GenomeScope2's k-mer coverage ceiling is now `--genomescope2_m` (default 10000), up
-  from a hard-coded `-m 1000`. 48 of 78 NOVA_260909_LA samples had more than 30% of their
-  total k-mer mass above 1000x and therefore excluded from the fit, which broke the model
-  and pushed Genome Haploid Length down by up to 10x.
+- GenomeScope2's k-mer coverage ceiling is now the `--genomescope2_m` parameter, still
+  defaulting to the previous hard-coded `-m 1000`. It was briefly raised to 10000 on the
+  theory that the low ceiling was discarding host k-mer mass; a sweep over 27 histograms
+  (`scripts/rerun_NOVA_260909_LA/98_genomescope_m_sweep.sh`) showed that it is not. The
+  estimate climbs monotonically with the ceiling and never plateaus (median 1.13x from
+  1000 to 10000, up to 1.81x), the whole gain lands in Genome Repeat Length while Genome
+  Unique Length does not move, the same change moved repeat length +54.8% on raw reads and
+  -1.6% on kraken2-cleaned reads, and one sample (OG3043) lost its fit entirely above 1000
+  with `kmercov` collapsing from 40.7 to 0.6. Decontamination is the lever; the ceiling is
+  not. Raise it only for a specific sample with evidence its genomic signal is truncated.
 - meryl now counts the kraken2-filtered reads rather than the raw fastp reads, so the
   k-mer profile, the GenomeScope estimate and the merqury QV all describe the same
   sequence as the assembly.
 - `scripts/taxonomy/load_anthozoa_taxonomy.py` renamed to `scripts/taxonomy/load_taxonomy.py`.
 
 ### `Fixed`
+
+- **GFASTATS died on a collapsed GenomeScope fit.** OG2653's model returned `-1` for every
+  property at Model Fit 0%; the module parsed that `-1` out of the summary and passed it as
+  gfastats' expected-size positional, and gfastats aborted with
+  `basic_string: construction from null` (exit 134), three attempts, then ignored. Any
+  sample with a collapsed fit did the same. When the parsed value is not a positive
+  integer the positional is now omitted entirely: gfastats reports N50 and skips the NG
+  statistics, which is honest, where substituting the assembly size would have published an
+  NG50 that is really an N50. The MultiQC tool_params row says why the NG columns are
+  empty.
+- **`kmercov` was null for 16 `draft_genomes` rows.** All 16 come from
+  `--skip_genome_assembly` tiers -- tier3 (9), tier6 (4), tier2 (2), plus OG3009 -- where
+  `CALCULATE_SEQUENCING_COVERAGE` never runs, so the summary is a precomputed published
+  file that predates the field, while `kmer_depth_lambda.py` parsed the same model file
+  successfully every time (OG2941 carried `genomescope_kmercov: 36.0` beside
+  `kmercov: null`). `recheck_against_assembly` read that value into a local and never wrote
+  it back; it now merges it in wherever the summary has none of its own.
+
+- **`RECHECK_GENOME_SIZE` collected no output and silently corrupted its own input.** Its
+  output glob `*_coverage_summary.json` also matched the provisional summary staged as its
+  input, and Nextflow excludes input files from output matching, so every task failed with
+  `MissingFileException` under `errorStrategy ignore` -- invisibly, at exit 0 with empty
+  stderr. All 68 re-run samples of NOVA_260909_LA were affected: the final verdict never
+  published, and `PUSH_ASSEMBLY_RESULTS` never ran at all because the channel feeding it
+  stayed empty. Worse, `open("<prefix>_coverage_summary.json", "w")` resolved through the
+  input symlink and overwrote `CALCULATE_SEQUENCING_COVERAGE`'s own work-directory copy,
+  which is the only reason four samples published a correct summary despite failing. The
+  provisional summary is now staged under `provisional/`, so the output name is free and the
+  write cannot reach upstream. `scripts/rerun_NOVA_260909_LA/93_clear_stale_provisional_summaries.sh`
+  clears the 64 cached summaries the old behaviour overwrote.
+- **No assembly row reached the database once `RECHECK_GENOME_SIZE` was in the graph.**
+  `UPLOAD_RESULTS` joined the GenomeScope summary to the coverage summary with `by: 0`,
+  which compares whole meta maps. The two channels sit on opposite sides of
+  decontamination, and `GENOME_DECONTAMINATION` adds `assembly_prefix` to the meta, so the
+  maps were never equal and the join matched nothing -- no error, just an empty channel and
+  a process that started and did nothing. Joined on `meta.id` now. It had worked only
+  because the coverage summary used to come from `CALCULATE_SEQUENCING_COVERAGE`, which also
+  runs before decontamination.
+- **Each k-mer-depth flag was stored twice.** `recheck_against_assembly` seeds its flag list
+  from the summary it is given and then appended `fitted_coverage_disagrees_with_read_depth`,
+  `assembly_not_dominated_by_host` and `host_coverage_too_low` without checking whether they
+  were already there. Any run whose provisional input had already been rechecked doubled
+  them, which is what all 23 tier-4 samples pushed. The function is idempotent now, with a
+  test that rechecks its own output and asserts nothing moves.
+- **Only the right-hand column of every GenomeScope property reached the database.** For
+  the length and heterozygosity rows the two columns are genuine bounds, so half of each
+  interval was dropped -- OG2949 spans 331-1113 Mb and only 1113 was stored. New
+  `genomesize_min`, `repeatsize_min`, `uniquesize_min`, `heterozygosity_min` and
+  `homozygosity_min` columns.
+- **GenomeScope's two "Model Fit" values are not a minimum and a maximum**, though they are
+  printed under a `min   max` header. Its R source emits `allscore` ("Percent Kmers Modeled
+  (All Kmers)") then `fullscore` ("Percent Kmers Modeled (Full Model)") -- unrelated
+  statistics, which is why they can invert (OG2647 82/25, OG2624 70/15). Only `fullscore`
+  was stored, so a sample could be recorded as an 84% fit while the model accounted for
+  17% of its k-mers, which is OG2644 exactly; the gap exceeds 30 points in 48 of the 80
+  baseline fits. The new column is `modelfit_allkmers`, named for what it is rather than as
+  a `modelfit_min` it is not, and the same rename runs through
+  `bin/genomescope_reliability.py` and the coverage modules.
+- **A diverged fit lost its entire database row.** GenomeScope writes `Inf bp` when the
+  model diverges; `_float` returned `None`, the completeness check raised, and OG3043 and
+  OG2647 got no GenomeScope record at all. The finite bound is now stored with the other
+  left `NULL`.
+- `draft_genomes` also gains `genome_size_reliable`, `genome_size_flags`, `kmercov` and
+  `lambda_depth`, so a stored genome size can be audited rather than taken on trust.
+- The GenomeScope percentage columns were `NUMERIC(5,2)`, which stored 0.381807% and
+  0.421044% both as ~0.4 and could not distinguish the low-heterozygosity fishes. Widened
+  to `NUMERIC(8,4)`.
+- **The precomputed BUSCO glob could attach the wrong lineage's scores.** A sample re-run
+  against a different lineage keeps both result sets, so `*short_summary.json` matches more
+  than one file for it -- 30 of 80 samples on NOVA_260909_LA. Those went straight into
+  `join()`, which consumes one item per key and silently drops the rest, with arrival order
+  deciding which. Selection is now by the lineage tag BUSCO writes into the filename,
+  derived from the sample's class through a `buscoDbForClass` helper shared with
+  `GENOME_QC` so the two cannot drift, and a missing lineage fails loudly instead of
+  substituting a neighbour's scores -- BUSCO scores are not comparable across lineages.
+- The reliability gate thresholded the **lower** of GenomeScope's two Model Fit values.
+  That value is a residual over whatever `--max_kmercov` admitted, so it falls whenever
+  the ceiling rises: the gate was measuring its own `-m` setting. It flagged 57 of 64
+  re-run NOVA_260909_LA samples, including OG2906 whose real fit was 98.6498% at every
+  cutoff tested. It now uses the upper value, which was identical to two decimal places at
+  every `-m` for 20 of 27 histograms and moved only where a fit genuinely broke.
+- A non-finite genome size bound was silently read as the opposite bound. GenomeScope
+  writes `Inf bp` when the model diverges; the parser matched `([0-9,]+) bp`, so taking
+  the last match returned the *lower* bound. OG3043 was published with a 2,499,788 bp
+  genome size, and every coverage figure divided by it. Non-finite bounds now raise
+  `non_finite_genome_size`.
+- The k-mer peak detector invented a peak on histograms that do not have one, then flagged
+  the disagreement it had just created -- on 22 of 23 tier-4 samples, reporting ratios of
+  11x to 267x against a threshold of 3. Its trough walk re-seated the trough every time
+  the count fell, so on a monotonically decreasing histogram (a coverage-starved library)
+  it ran out into the sparse tail and the guard meant to return "no peak" never tripped.
+  Detection now requires a genuine mode above a genuine trough, within the coverage range
+  that still holds k-mer mass, and returns `no_kmer_peak` when there isn't one -- which
+  for those libraries is the actionable answer.
+- Peak detection searched `1..params.genomescope2_m`, so changing the model cutoff changed
+  which mode was found and therefore the flag. It now uses its own
+  `--genomescope_peak_search_max`.
+- Degeneracy was detected as `model_fit_min == model_fit_max`, which stopped firing for
+  OG2983 the moment `-m` changed, letting a 10.9 Mb "genome" at `kmercov` 569 and `bias`
+  37 be graded EXCELLENT. It is now detected from the model parameters themselves.
+- `scripts/rerun_NOVA_260909_LA/99_compare_to_baseline.sh` reported the lower Model Fit
+  bound (the one that moves with `-m`) and silently printed the lower size bound for a
+  diverged fit. It now reports the upper fit, shows `NA` for a non-finite bound, and adds
+  Genome Unique Length -- without which a size estimate inflating purely in its repeat
+  component looks like a size estimate improving.
 
 - `MEGAHIT` treated a checkpoint as complete on a `done` marker *or* a non-empty contigs
   file. A checkpoint with `done` but a missing or truncated contigs file surfaced several

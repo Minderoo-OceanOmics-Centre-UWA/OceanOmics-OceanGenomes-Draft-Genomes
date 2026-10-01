@@ -22,6 +22,8 @@ include { paramsSummaryMap          } from 'plugin/nf-schema'
 include { paramsSummaryMultiqc      } from '../subworkflows/nf-core/utils_nfcore_pipeline'
 include { softwareVersionsToYAML    } from '../subworkflows/nf-core/utils_nfcore_pipeline'
 include { methodsDescriptionText    } from '../subworkflows/local/utils_nfcore_oceangenomes_draftgenomes_pipeline'
+include { buscoDbForClass           } from '../subworkflows/local/utils_nfcore_oceangenomes_draftgenomes_pipeline'
+include { buscoLineageTag           } from '../subworkflows/local/utils_nfcore_oceangenomes_draftgenomes_pipeline'
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -117,8 +119,12 @@ workflow OCEANGENOMES_DRAFTGENOMES {
     // MODULE: TRIGGER_MITOGENOME
     //
 
+    // The launcher is passed in from the mito repo rather than rebuilt here, so
+    // it stays in one place. checkIfExists turns a wrong --mitogenome_nfcore_dir
+    // into an immediate failure instead of a broken script hours later.
     TRIGGER_MITOGENOME(
-        ch_fastp_fastqc_results.collect()
+        ch_fastp_fastqc_results.collect(),
+        file("${params.mitogenome_nfcore_dir}/nextflow_run.sh", checkIfExists: true)
     )
 
 
@@ -134,6 +140,9 @@ workflow OCEANGENOMES_DRAFTGENOMES {
         ch_genome_assembly_results = GENOME_ASSEMBLY.out.megahit_assembled_contigs
         ch_meryl_db = GENOME_ASSEMBLY.out.meryl_db
         ch_genomescope_summary = GENOME_ASSEMBLY.out.genomescope_summary
+        ch_coverage_summary = GENOME_ASSEMBLY.out.coverage_summary
+        ch_genomescope_model = GENOME_ASSEMBLY.out.genomescope_model
+        ch_meryl_hist = GENOME_ASSEMBLY.out.meryl_hist
     } else if (params.precomputed_genome_assembly_results) {
         // Use precomputed results if analysis is skipped
         ch_precomputed_genome_assembly_results = warnIfEmpty(Channel.fromPath(params.precomputed_genome_assembly_results, checkIfExists: false), params.precomputed_genome_assembly_results)
@@ -161,6 +170,37 @@ workflow OCEANGENOMES_DRAFTGENOMES {
             .join(ch_precomputed_genomescope_summary)
             .map { key, meta, file -> tuple(meta, file) }
 
+        // The coverage summary is re-checked against the assembly during QC, so it has to
+        // be available even when assembly is skipped and the k-mer stage never ran.
+        ch_precomputed_coverage_summary = warnIfEmpty(Channel.fromPath(params.precomputed_coverage_summary, checkIfExists: false), params.precomputed_coverage_summary)
+        .map { file ->
+            def sample_id = file.baseName.split('\\_')[0] // drops the '_coverage_summary' suffix
+            tuple(sample_id, file)
+        }
+        ch_coverage_summary = ch_meta_by_prefix
+            .join(ch_precomputed_coverage_summary)
+            .map { key, meta, file -> tuple(meta, file) }
+
+        // The fitted kmercov, needed by MEASURE_KMER_COVERAGE in QC for the read-depth
+        // comparison, so it has to survive a skipped assembly stage like the summary does.
+        ch_precomputed_genomescope_model = warnIfEmpty(Channel.fromPath(params.precomputed_genomescope_model, checkIfExists: false), params.precomputed_genomescope_model)
+        .map { file ->
+            def sample_id = file.baseName.split('\\_')[0] // drops the '_genomescope2_model' suffix
+            tuple(sample_id, file)
+        }
+        ch_genomescope_model = ch_meta_by_prefix
+            .join(ch_precomputed_genomescope_model)
+            .map { key, meta, file -> tuple(meta, file) }
+
+        ch_precomputed_meryl_hist = warnIfEmpty(Channel.fromPath(params.precomputed_meryl_hist, checkIfExists: false), params.precomputed_meryl_hist)
+        .map { file ->
+            def sample_id = file.name.replace('.meryl.hist', '')
+            tuple(sample_id, file)
+        }
+        ch_meryl_hist = ch_meta_by_prefix
+            .join(ch_precomputed_meryl_hist)
+            .map { key, meta, file -> tuple(meta, file) }
+
         ch_precomputed_meryl_db = warnIfEmpty(Channel.fromPath(params.precomputed_meryl_results, type: 'dir', checkIfExists: false), params.precomputed_meryl_results)
         .map { meryl_dir ->
             // Extract sample_id from the .meryl directory name (the * before .meryl)
@@ -175,6 +215,9 @@ workflow OCEANGENOMES_DRAFTGENOMES {
         ch_genome_assembly_results = Channel.empty()
         ch_meryl_db = Channel.empty()
         ch_genomescope_summary = Channel.empty()
+        ch_coverage_summary = Channel.empty()
+        ch_genomescope_model = Channel.empty()
+        ch_meryl_hist = Channel.empty()
     }
 
     ch_assembly_with_taxon = ch_genome_assembly_results.map { meta, assembly_file ->
@@ -263,11 +306,17 @@ workflow OCEANGENOMES_DRAFTGENOMES {
             ch_genomescope_summary,
             ch_genome_decontamination_assembly,
             ch_meryl_db,
-            
+            ch_coverage_summary,
+            ch_fastp_json,
+            ch_genomescope_model,
+            ch_meryl_hist,
         )
         ch_busoco_short_summary = GENOME_QC.out.busco_short_summary
         ch_merqury_results = GENOME_QC.out.merqury_results
         ch_gfastats_results = GENOME_QC.out.gfastats_results
+        // RECHECK_GENOME_SIZE's output supersedes the provisional summary from assembly:
+        // it is the one carrying the assembly and read-depth cross-checks.
+        ch_coverage_summary_final = GENOME_QC.out.coverage_summary
     } else if (params.precomputed_genome_qc_results) {
         // Use precomputed results if analysis is skipped
         /* For the genome QC there is going to be multiple outputs of the results from the different modules run within this subworkflow.
@@ -275,14 +324,38 @@ workflow OCEANGENOMES_DRAFTGENOMES {
             Or have a seperate draft genome results subwokflow which is probably better, to keep the mitogenome pipeline seperate.
             Will need to add in all the outputs and the if skipped paths to files evenbtually.
         */
+        // A sample re-run against a different BUSCO lineage keeps BOTH result sets on
+        // disk, so this glob matches more than one file for it -- 30 of the 80 samples in
+        // NOVA_260909_LA. Feeding those straight into join() let Nextflow consume one and
+        // silently drop the other, with arrival order deciding which, so a precomputed run
+        // could attach the stale lineage's scores. Group per sample and pick by the
+        // lineage tag BUSCO writes into the filename instead. Same shape as the merqury
+        // handling below, which has always grouped before joining.
         ch_precomputed_busoco_short_summary = warnIfEmpty(Channel.fromPath(params.precomputed_busoco_short_summary_results, checkIfExists: false), params.precomputed_busoco_short_summary_results)
             .map { file ->
                 def sample_id = file.baseName.split('\\.')[0..2].join('.')
                 tuple(sample_id, file)
             }
+            .groupTuple()
         ch_busoco_short_summary = ch_meta_by_prefix
             .join(ch_precomputed_busoco_short_summary)
-            .map { key, meta, file -> tuple(meta, file) }
+            .map { key, meta, files ->
+                def tag = buscoLineageTag(buscoDbForClass(meta))
+                def wanted = files.find { it.name.contains(".busco.${tag}.") }
+                if ( !wanted ) {
+                    // Do not fall back to whatever else is there. BUSCO scores are not
+                    // comparable across lineages, so the absence of this run's lineage
+                    // means BUSCO has to run, not that a neighbour will do.
+                    throw new IllegalArgumentException(
+                        "Sample '${meta.id}' (class ${meta.class}) should be scored against " +
+                        "the '${tag}' BUSCO lineage, but no precomputed summary for it was " +
+                        "found. Files present: ${files.collect { it.name }.join(', ')}. " +
+                        "Re-run BUSCO for this sample, or point the --busco_*_db parameters " +
+                        "at the lineage these results were produced with."
+                    )
+                }
+                tuple(meta, wanted)
+            }
 
         ch_precomputed_merqury_results = warnIfEmpty(Channel.fromPath(params.precomputed_merqury_results_results, checkIfExists: false), params.precomputed_merqury_results_results)
             .map { file ->
@@ -300,6 +373,10 @@ workflow OCEANGENOMES_DRAFTGENOMES {
             .join(ch_precomputed_merqury_results)
             .map { key, meta, completeness_stats, qv_tsv -> tuple(meta, completeness_stats, qv_tsv) }
 
+        // Without QC there is no re-check, so the published summary is whatever the last
+        // run left. It still carries its own assembly_cross_check field saying so.
+        ch_coverage_summary_final = ch_coverage_summary
+
         ch_precomputed_gfastats_results = warnIfEmpty(Channel.fromPath(params.precomputed_gfastats_results_results, checkIfExists: false), params.precomputed_gfastats_results_results)
             .map { file ->
                 def sample_id = file.baseName.split('\\.')[0..2].join('.')
@@ -312,6 +389,7 @@ workflow OCEANGENOMES_DRAFTGENOMES {
         ch_busoco_short_summary = Channel.empty()
         ch_merqury_results = Channel.empty()
         ch_gfastats_results = Channel.empty()
+        ch_coverage_summary_final = Channel.empty()
     }
 
 
@@ -323,6 +401,7 @@ workflow OCEANGENOMES_DRAFTGENOMES {
         UPLOAD_RESULTS (
             ch_fastp_json,
             ch_genomescope_summary,
+            ch_coverage_summary_final,
             ch_filter_report,
             ch_contigs_under_500bp,
             ch_tiara_filter_summary,
@@ -360,9 +439,12 @@ workflow OCEANGENOMES_DRAFTGENOMES {
     if (!params.skip_genome_qc) {ch_versions = ch_versions.mix(GENOME_QC.out.versions)}
     // if (!params.skip_upload_results) {ch_versions = ch_versions.mix(UPLOAD_RESULTS.out.versions)}
 
+    // Run-level, so concurrent launches sharing one outdir would overwrite each other's
+    // copy. report_subdir keeps them apart, the same way it does for multiqc and the
+    // coverage CSV; it is empty for a normal whole-run launch.
     ch_collated_versions = softwareVersionsToYAML(ch_versions)
         .collectFile(
-            storeDir: "${params.outdir}/pipeline_info",
+            storeDir: "${params.outdir}/pipeline_info${params.report_subdir ? '/' + params.report_subdir : ''}",
             name: 'software_versions.yml',
             sort: true,
             newLine: true

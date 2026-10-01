@@ -3,12 +3,17 @@
 #
 # These have almost no detectable contamination (FCS EXCLUDE+REVIEW under 2% for most;
 # OG3037 is 0.3%) yet BUSCO C of 3-20% at N50 665-950 bp, on assemblies of 0.9-1.8 Gb
-# against GenomeScope estimates of 100-130 Mb. The size estimate is the thing that was
-# wrong, not the assembly: most of their k-mer mass sits above the old -m 1000 ceiling,
-# and real per-haplotype coverage is roughly 10-20x.
+# against GenomeScope estimates of 100-130 Mb.
 #
-# So this refits GenomeScope with -m 10000, re-runs decontamination with the new filters
-# and rescores BUSCO against the per-class lineages. It does NOT re-assemble: kraken2 is
+# The first pass of this tier tried to close that gap by raising GenomeScope's -m to
+# 10000. It does not close: the estimate rises but never plateaus, the gain lands entirely
+# in repeat length while unique length does not move, and OG3037 went from 123 Mb to
+# 209 Mb against a 1.26 Gb assembly -- still 6x out. See "The -m 10000 detour" in README.md.
+# What these samples actually have is no genomic k-mer peak at all, which the gate now
+# says out loud (no_kmer_peak) and which means resequencing, not refitting.
+#
+# So this re-runs decontamination with the new filters, refits GenomeScope at the restored
+# -m 1000 and rescores BUSCO against the per-class lineages. It does NOT re-assemble: kraken2 is
 # off and the reads are the same fastp reads these assemblies were built from, so
 # MEGAHIT_UNKEYED=adopt tells MEGAHIT to claim the existing checkpoints rather than
 # discard them, and only meryl, GenomeScope and everything downstream re-run.
