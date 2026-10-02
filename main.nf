@@ -107,17 +107,32 @@ workflow NFCORE_OCEANGENOMES_DRAFTGENOMES {
         .map { id, multiqc_file, meta -> tuple(meta, multiqc_file) }
     
 
-    //
-    // WORKFLOW: Run main Draft Genomes workflow
-    //
-    
-    OCEANGENOMES_DRAFTGENOMES (
-        ch_samplesheet,
-        ch_download_multiqc_files,
-        ch_download_multiqc_inputs_with_meta,
-        ch_download_versions,
-        sql_config
-    )
+    if (params.stop_after_samplesheet) {
+        // Review stop: the samplesheet is published (and its taxonomy checked) but
+        // nothing is assembled, so a run can be trimmed to the samples worth the SUs.
+        // A re-run without the flag picks the edited sheet up from
+        // {outdir}/samplesheet/ and, with -resume, reuses the download. The
+        // subscribe also makes sure the samplesheet channel is consumed.
+        ch_samplesheet
+            .count()
+            .subscribe { n ->
+                log.info "Stopping after samplesheet (--stop_after_samplesheet): ${n} sample(s) in ${params.outdir}/samplesheet/${run_id}_samplesheet.csv"
+            }
+        ch_multiqc_report = Channel.empty()
+    } else {
+        //
+        // WORKFLOW: Run main Draft Genomes workflow
+        //
+
+        OCEANGENOMES_DRAFTGENOMES (
+            ch_samplesheet,
+            ch_download_multiqc_files,
+            ch_download_multiqc_inputs_with_meta,
+            ch_download_versions,
+            sql_config
+        )
+        ch_multiqc_report = OCEANGENOMES_DRAFTGENOMES.out.multiqc_report
+    }
 
 
     //
@@ -125,7 +140,7 @@ workflow NFCORE_OCEANGENOMES_DRAFTGENOMES {
     //
 
     emit:
-    multiqc_report = OCEANGENOMES_DRAFTGENOMES.out.multiqc_report // channel: /path/to/multiqc_report.html 
+    multiqc_report = ch_multiqc_report // channel: /path/to/multiqc_report.html
 
 }
 /*

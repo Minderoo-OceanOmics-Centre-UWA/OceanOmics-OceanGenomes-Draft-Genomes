@@ -362,6 +362,11 @@
                     "description": "Skip uploading QC metrics to SQL database.",
                     "default": false
                 },
+                "stop_after_samplesheet": {
+                    "type": "boolean",
+                    "description": "Stop after the samplesheet is created and published, before any assembly. Edit the published samplesheet, then re-run without this flag (with -resume) to process the samples it lists.",
+                    "default": false
+                },
                 "precomputed_download_reads_results": {
                     "type": "string",
                     "description": "Glob for precomputed paired FASTQs if download is skipped."
