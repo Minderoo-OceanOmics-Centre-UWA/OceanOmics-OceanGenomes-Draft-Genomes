@@ -5,7 +5,7 @@ module load singularity/4.1.0-nompi
 # Copy this template to nextflow_run_<RUN>.sh, set RUN below, then run the copied script.
 RUN=XXXX_0000_XX
 BASE="/scratch/pawsey1348/$USER"
-MITO_PIPELINE_DIR="/software/projects/pawsey1348/$USER/Oceanomics-OceanGenomes-Mitogenomes"
+MITO_PIPELINE_DIR="/software/projects/pawsey1348/$USER/repos/Oceanomics-OceanGenomes-Mitogenomes"
 
 # Outdir is made inside the base directory
 OUT="${BASE}/${RUN}"
