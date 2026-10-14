@@ -40,6 +40,10 @@ FAMILY_COLUMNS = {
         # symbiont at the host's own depth counts as host, a high-copy host repeat does
         # not. The only answer available below about 10x host coverage.
         "host_assembly_size", "host_assembly_fraction",
+        # The same host mass with haplotype-split pairs counted once, and whether the
+        # partition's BUSCO anchor could be trusted at all. A low-confidence partition is
+        # one whose host size should not be quoted.
+        "host_haploid_size", "partition_confidence",
     ),
     "decontamination": (
         "num_contigs_mitochondrion", "num_contigs_plastid",
@@ -310,6 +314,8 @@ def parse_coverage_summary(path: PathLike) -> dict[str, Any]:
         "lambda_depth": _float(data.get("lambda_depth")),
         "host_assembly_size": _int(data.get("host_assembly_size")),
         "host_assembly_fraction": _float(data.get("host_assembly_fraction")),
+        "host_haploid_size": _int(data.get("host_haploid_size")),
+        "partition_confidence": data.get("partition_confidence") or None,
     }
     return _record(og_id, seq_date, values)
 

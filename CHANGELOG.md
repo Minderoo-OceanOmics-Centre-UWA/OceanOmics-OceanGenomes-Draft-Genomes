@@ -9,6 +9,34 @@ Generalised from "fish + corals" to all invertebrates.
 
 ### `Added`
 
+- **BUSCO completeness floor in the genome size gate.** `RECHECK_GENOME_SIZE` now reads
+  the BUSCO short summary and flags `assembly_lacks_host_gene_space` below
+  `--genomescope_min_busco_complete` (10). OG3080 was graded EXCELLENT on an 8.9 Mb
+  assembly at C:0.0%: its 15.5 Mb estimate agreed with that assembly (ratio 1.74), and with
+  too few Complete BUSCOs to measure read depth none of the depth checks could fire. 10
+  sits in the gap NOVA_260909_LA's EXCELLENT samples left between 9.2% and 19.9%. Replayed
+  over all 79 re-run samples it changes three verdicts, OG3080, OG3027 (3.9%) and OG3029
+  (9.2%), and adds the flag to 30 samples already unreliable.
+- **Host partition confidence.** The partition is keyed on depth over the Complete BUSCOs
+  that were found, and with few of them they are found where the assembly is best
+  covered. OG2942's 60 regions put the anchor at 27.4x while 80% of its assembly formed one
+  mode near 6x, so the "host" came out as 190 of 1,458 Mb. `kmer_depth_lambda.py` now
+  reports the assembly's own depth mode, `anchor_over_mode`, and `partition_confidence`
+  with a `partition_note`; a low-confidence partition is no longer the cross-check's
+  denominator. Where the anchor is off a dominant mode the re-centred size is reported as
+  `host_assembly_size_mode_anchored` (OG2942: 1,165 Mb; OG2948: 414 Mb against
+  GenomeScope's 410). New `--host_depth_min_regions` (50), a noise guard only: the mode
+  test is what caught every partition known to be wrong, and a floor of 200 marked sound
+  ones low without catching anything more.
+- **Haplotype-aware host size.** Contigs in the lower part of the host band
+  (below 0.75x host depth) are haplotype-split loci where heterozygosity is high, and
+  `host_assembly_size` counted each twice: OG3074 (2.57% het) gave 494 Mb against
+  GenomeScope's 338. New `host_collapsed_size`, `host_haplotig_size` and
+  `host_haploid_size` (collapsed + haplotig / 2), which is now the cross-check denominator.
+  On the eleven trusted fits it lands within a median 6.5% of GenomeScope against 11% for
+  the collapsed band alone (OG3074 now 428 Mb). Two new `draft_genomes` columns,
+  `host_haploid_size` and `partition_confidence`.
+
 - MEGAHIT checkpoints are fingerprinted on their inputs. The checkpoint directory under
   `${params.outdir}/megahit_checkpoints` exists so a killed assembly can resume, which
   puts it outside Nextflow's caching; it was keyed on the sample prefix alone, so a

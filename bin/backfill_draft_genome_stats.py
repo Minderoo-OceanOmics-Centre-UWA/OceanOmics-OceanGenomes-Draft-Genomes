@@ -54,7 +54,8 @@ OPTIONAL_COMPONENTS = {"coverage_summary"}
 # Columns that only exist when a coverage summary was published beside the sample, which
 # is not the case for archived runs predating the reliability gate.
 OPTIONAL_COLUMNS = {"genome_size_reliable", "genome_size_flags", "kmercov", "lambda_depth",
-                    "host_assembly_size", "host_assembly_fraction"}
+                    "host_assembly_size", "host_assembly_fraction",
+                    "host_haploid_size", "partition_confidence"}
 
 INVENTORY_FIELDS = ("og_id", "seq_date", *COMPONENTS.keys(), "status", "details")
 UPLOAD_FIELDS = ("og_id", "seq_date", "status", "details")

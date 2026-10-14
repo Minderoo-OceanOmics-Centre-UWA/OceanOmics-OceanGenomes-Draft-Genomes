@@ -19,6 +19,7 @@ all. The BED is built there by bin/busco_complete_bed.awk; this reads what comes
 import argparse
 import glob
 import json
+import math
 import os
 import sys
 
@@ -105,7 +106,7 @@ def read_contig_depth(path):
     return rows
 
 
-def partition_by_depth(rows, host_depth, window=2.0, min_len=500):
+def partition_by_depth(rows, host_depth, window=2.0, min_len=500, collapsed_floor=0.75):
     """Split an assembly into host, symbiont and low-depth mass by per-contig depth.
 
     The host's single-copy genes define one depth; contigs sitting at it are the host's,
@@ -121,15 +122,24 @@ def partition_by_depth(rows, host_depth, window=2.0, min_len=500):
     This is a LOWER bound on host genome size. A symbiont that happens to sit at the host's
     depth counts as host, and a high-copy repeat that is genuinely the host's counts as
     symbiont. Describe it as a lower bound everywhere it surfaces.
+
+    Within the host band, contigs below collapsed_floor x host_depth are reported apart as
+    host_haplotig. Where heterozygosity is high MEGAHIT keeps both haplotypes of a locus as
+    separate contigs, each at about half the collapsed depth, so the plain host total
+    counts that locus twice. Across the NOVA_260909_LA fishes the half-depth mass tracks
+    heterozygosity (OG3078 0.70% het, 29 Mb; OG3074 2.57% het, 169 Mb), and it is what
+    put OG3074's host at 494 Mb against GenomeScope's 338.
     """
-    totals = {"host": 0, "below": 0, "above": 0, "excluded": 0}
-    counts = {"host": 0, "below": 0, "above": 0, "excluded": 0}
+    totals = {"host": 0, "host_collapsed": 0, "host_haplotig": 0,
+              "below": 0, "above": 0, "excluded": 0}
+    counts = dict.fromkeys(totals, 0)
     if not rows:
         return totals, counts, None
     if not host_depth or host_depth <= 0 or not window or window <= 0:
         return totals, counts, None
 
     low, high = host_depth / window, host_depth * window
+    split = max(low, host_depth * collapsed_floor)
     for _name, length, depth in rows:
         if length < min_len:
             totals["excluded"] += length
@@ -141,9 +151,56 @@ def partition_by_depth(rows, host_depth, window=2.0, min_len=500):
             bucket = "above"
         else:
             bucket = "host"
+            sub = "host_haplotig" if depth < split else "host_collapsed"
+            totals[sub] += length
+            counts[sub] += 1
         totals[bucket] += length
         counts[bucket] += 1
     return totals, counts, (low, high)
+
+
+def find_depth_mode(rows, min_len=500, bin_width=0.25):
+    """The length-weighted modal per-contig depth, or None when there are no usable rows.
+
+    Binned on log2 depth, because the masses being told apart -- host, haplotig, symbiont
+    -- differ by factors, not by fixed amounts. Returns the geometric centre of the
+    heaviest bin.
+    """
+    bins = {}
+    for _name, length, depth in rows:
+        if length < min_len or depth <= 0:
+            continue
+        key = math.floor(math.log2(depth) / bin_width)
+        bins[key] = bins.get(key, 0) + length
+    if not bins:
+        return None
+    best = max(bins, key=lambda k: bins[k])
+    return 2 ** ((best + 0.5) * bin_width)
+
+
+def partition_confidence(regions, host_depth, mode, mode_fraction, window=2.0,
+                         min_regions=50, min_mode_fraction=0.4):
+    """Whether the BUSCO-anchored partition can be trusted, and if not, why.
+
+    The anchor is depth over the Complete BUSCOs that were found. With few of them, they
+    are found where the assembly is best covered, so the anchor sits above the host's
+    typical depth: OG2942's 60 regions put it at 27x while 80% of the assembly formed
+    one mode near 6x. Returns (confidence, note).
+
+    The anchor-to-mode test does the work. On NOVA_260909_LA it caught every partition
+    known to be wrong (OG2942 4.4x, OG2629 8.0x, OG2645 16.8x off the mode), and on
+    OG2948 the mode-anchored size (414 Mb) matched GenomeScope's 410 where the BUSCO
+    anchor gave 341. The region floor is only a noise guard: at 200 it marked sound
+    partitions low (OG2966, OG3024, OG2989, anchors within 20% of the mode) without
+    catching anything the mode test missed.
+    """
+    if not regions or regions < min_regions:
+        return "low", "few_busco_regions"
+    if mode is None or mode_fraction is None or mode_fraction < min_mode_fraction:
+        return "low", "no_dominant_mode"
+    if host_depth / mode > window or mode / host_depth > window:
+        return "low", "anchor_off_mode"
+    return "high", None
 
 
 def fitted_kmercov(path):
@@ -205,6 +262,10 @@ def main(argv=None):
                         help="multiplicative half-width of the host depth band")
     parser.add_argument("--host-depth-min-contig", type=int, default=500,
                         help="contigs shorter than this are too short for a stable depth")
+    parser.add_argument("--host-depth-min-regions", type=int, default=50,
+                        help="fewer Complete BUSCO regions than this and the anchor is low confidence")
+    parser.add_argument("--host-mode-min-fraction", type=float, default=0.4,
+                        help="share of partitioned mass the depth mode's band must hold to count as dominant")
     parser.add_argument("--kmer", type=int, default=DEFAULT_K)
     parser.add_argument("--sample", default="")
     args = parser.parse_args(argv)
@@ -234,6 +295,9 @@ def main(argv=None):
     # measured host lambda under 10 produced an estimate within 2x of its own assembly.
     host_size = host_fraction = above_size = below_size = None
     host_contigs = None
+    collapsed_size = haplotig_size = haploid_size = None
+    mode = anchor_over_mode = mode_anchored_size = None
+    confidence = note = None
     partition_status = "no_contig_depth"
     if args.contig_depth and os.path.exists(args.contig_depth):
         contig_rows = read_contig_depth(args.contig_depth)
@@ -252,7 +316,28 @@ def main(argv=None):
             host_contigs = counts["host"]
             partitioned = totals["host"] + totals["above"] + totals["below"]
             host_fraction = host_size / partitioned if partitioned else None
+            collapsed_size = totals["host_collapsed"]
+            haplotig_size = totals["host_haplotig"]
+            haploid_size = collapsed_size + haplotig_size // 2
             partition_status = "ok"
+
+            # Where does the assembly's own mass sit, independently of the BUSCO anchor?
+            mode = find_depth_mode(contig_rows, args.host_depth_min_contig)
+            mode_fraction = None
+            if mode:
+                anchor_over_mode = depth / mode
+                mode_totals, _c, _b = partition_by_depth(
+                    contig_rows, mode, args.host_depth_window, args.host_depth_min_contig)
+                mode_fraction = mode_totals["host"] / partitioned if partitioned else None
+            confidence, note = partition_confidence(
+                regions, depth, mode, mode_fraction, args.host_depth_window,
+                args.host_depth_min_regions, args.host_mode_min_fraction)
+            # Reported beside the BUSCO-anchored size, never in place of it: a dominant
+            # mode is usually the host, but in a symbiont-dominated sponge it need not be.
+            if (mode_fraction is not None and mode_fraction >= args.host_mode_min_fraction
+                    and (anchor_over_mode > args.host_depth_window
+                         or anchor_over_mode < 1 / args.host_depth_window)):
+                mode_anchored_size = mode_totals["host"]
 
     result = {
         "sample_id": args.sample,
@@ -276,6 +361,15 @@ def main(argv=None):
         "low_depth_assembly_size": below_size,
         "host_contig_count": host_contigs,
         "partition_status": partition_status,
+        # Haplotype-split pairs counted once. host_assembly_size counts both copies.
+        "host_collapsed_size": collapsed_size,
+        "host_haplotig_size": haplotig_size,
+        "host_haploid_size": haploid_size,
+        "depth_mode": mode,
+        "anchor_over_mode": anchor_over_mode,
+        "partition_confidence": confidence,
+        "partition_note": note,
+        "host_assembly_size_mode_anchored": mode_anchored_size,
     }
     if lam is None and result["status"] == "ok":
         result["status"] = "no_measurement"

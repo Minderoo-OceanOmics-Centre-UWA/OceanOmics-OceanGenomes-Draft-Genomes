@@ -261,11 +261,13 @@ workflow GENOME_QC {
     // had not run, so the one reliability check that needs an assembly could not be made.
     // This republishes it as the final verdict.
     //
+    // BUSCO completeness rides along for the gene-space floor. The join drops no sample
+    // that was not already dropped: ch_kmer_depth itself needs BUSCO's full table.
     ch_recheck_input = join_on_keys_and_merge(
-        [coverage_summary, ch_seqkit_stats_results, ch_kmer_depth])
+        [coverage_summary, ch_seqkit_stats_results, ch_kmer_depth, BUSCO_BUSCO.out.short_summaries_json])
 
     RECHECK_GENOME_SIZE (
-        ch_recheck_input // tuple val(meta), path(coverage_json), path(seqkit_stats), path(kmer_depth_json)
+        ch_recheck_input // tuple val(meta), path(coverage_json), path(seqkit_stats), path(kmer_depth_json), path(busco_summary)
     )
     ch_versions = ch_versions.mix(RECHECK_GENOME_SIZE.out.versions.first())
     ch_coverage_summary_final = RECHECK_GENOME_SIZE.out.coverage_json

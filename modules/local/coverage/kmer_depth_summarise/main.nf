@@ -55,6 +55,7 @@ process SUMMARISE_KMER_COVERAGE {
         \$DEPTH_ARG \\
         --host-depth-window ${params.host_depth_window} \\
         --host-depth-min-contig ${params.host_depth_min_contig} \\
+        --host-depth-min-regions ${params.host_depth_min_regions} \\
         --status "\$STATUS" \\
         --fastp-json ${fastp_json} \\
         --seqkit-stats ${seqkit_stats} \\

@@ -70,6 +70,13 @@ K-mer histograms are generated with meryl and modelled by GenomeScope2 to estima
 
 The per-sample `*_kmer_depth.json` also carries a genome size that does not come from the k-mer histogram at all. The k-mer route collapses below about 10x host coverage, so `SUMMARISE_KMER_COVERAGE` partitions the assembly by per-contig read depth around the depth of the host's own single-copy BUSCO genes: `host_assembly_size` is the mass sitting at host depth, `symbiont_assembly_size` the mass well above it, and `host_assembly_fraction` how much of the assembly is the animal. `partition_status` says whether the partition was possible (`ok`, `no_host_depth`, `no_contig_depth`). Both sizes are **lower bounds**: a symbiont that happens to sit at the host's depth counts as host, and a high-copy host repeat counts as symbiont. Where the partition succeeded, the genome size cross-check divides by the host mass rather than the whole assembly, and records which it used in `assembly_ratio_basis`.
 
+Two refinements to that partition:
+
+- **Haplotype-split loci are counted once.** Within the host band, contigs below 0.75x host depth are reported as `host_haplotig_size` and the rest as `host_collapsed_size`. Where heterozygosity is high, the assembler keeps both haplotypes of a locus as separate contigs at about half depth, so `host_assembly_size` counts that locus twice. `host_haploid_size` (collapsed + haplotig / 2) counts it once, and is the size the cross-check divides by.
+- **The partition says when it cannot be trusted.** `depth_mode` is the length-weighted modal contig depth and `anchor_over_mode` is the BUSCO-gene depth divided by it. `partition_confidence` is `low`, with a reason in `partition_note`, when there are fewer than `--host_depth_min_regions` Complete BUSCO regions (`few_busco_regions`), no depth band holds 40% of the assembly (`no_dominant_mode`), or the BUSCO anchor sits outside the host window of the mode (`anchor_off_mode`). A low-confidence partition is not used by the cross-check, which falls back to the total assembly. Where the anchor is off a dominant mode, `host_assembly_size_mode_anchored` reports the same partition re-centred on that mode, as a second figure rather than a replacement.
+
+The final verdict also checks gene space: an assembly whose BUSCO completeness is below `--genomescope_min_busco_complete` (10%) is flagged `assembly_lacks_host_gene_space`, and the summary records the value in `busco_complete`. Without it, a failed library whose size estimate matches its own tiny assembly can pass every other check.
+
 ### Assembly (MEGAHIT)
 
 <details markdown="1">

@@ -134,6 +134,12 @@
                     "default": 2.0,
                     "minimum": 1
                 },
+                "host_depth_min_regions": {
+                    "type": "integer",
+                    "description": "Fewer Complete BUSCO regions than this and the host depth partition is reported as low confidence and not used as the assembly cross-check denominator.",
+                    "default": 50,
+                    "minimum": 0
+                },
                 "host_depth_min_contig": {
                     "type": "integer",
                     "description": "Contigs shorter than this are excluded from the depth partition. At a few hundred bases a mean depth is noise, and the contig would otherwise be assigned by it.",
@@ -167,6 +173,13 @@
                     "description": "Lower bound on GenomeScope genome size divided by decontaminated assembly size before the estimate is flagged. Catches a model that converged cleanly onto something that is not the genome.",
                     "default": 0.3,
                     "minimum": 0
+                },
+                "genomescope_min_busco_complete": {
+                    "type": "number",
+                    "description": "BUSCO completeness (C%) below which the genome size estimate is flagged: the assembly does not contain the host's gene space, so agreement with it says nothing about the host genome.",
+                    "default": 10,
+                    "minimum": 0,
+                    "maximum": 100
                 },
                 "genomescope_max_assembly_ratio": {
                     "type": "number",

@@ -106,7 +106,7 @@ Alternatively the backup can be ran in a tmux session.
 `01_aws_raw_backup.sh` copies the raw BaseSpace download to:
 
 ```bash
-s3:oceanomics/OceanGenomes/illumina-raw/$RUN
+s3:ocom.oceangenomes/illumina-raw/$RUN
 ```
 
 It then runs `02_data_audit.sh`, which compares local and S3 file counts/sizes and writes audit TSVs in the backup working directory. Check the joined audit file:
@@ -147,7 +147,7 @@ This can also be ran in a tmux session as an alternative.
 
 The final backup script:
 
-- copies selected final per-sample outputs to S3 under `s3:oceanomics/OceanGenomes/analysed-data/draft-genomes`
+- copies selected final per-sample outputs to S3 under `s3:ocom.oceangenomes/analysed-data/draft-genomes`
 - archives each `.meryl` directory to `.meryl.tar.gz` and removes the unarchived `.meryl` directory after verifying the archive
 - runs `02_data_audit_local.sh` to record the local subsets that should match Acacia and S3
 - moves the final `draftgenomes` directory to Acacia at `pawsey0964:oceanomics-draftgenomes/genomes.v2/`

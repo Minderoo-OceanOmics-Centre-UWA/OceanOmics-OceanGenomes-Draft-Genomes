@@ -445,3 +445,105 @@ class ReseedPlanTests(unittest.TestCase):
             self.plan({"genome_size_reliable": False},
                       {"lambda_depth": 3.8, "kmercov_over_lambda_depth": 7.6}),
             "skip")
+
+
+class BuscoFloorTests(unittest.TestCase):
+    """The gene-space floor. A size estimate that agrees with an assembly says nothing
+    about the host when the assembly is not the host's."""
+
+    def base(self):
+        return {"estimated_genome_size": 15_546_537, "genome_size_flags": "",
+                "genome_size_reliable": True, "coverage_status": "EXCELLENT"}
+
+    def test_a_failed_assembly_that_matches_its_estimate_is_flagged(self):
+        # OG3080: 15.5 Mb estimate, 8.9 Mb assembly (ratio 1.74, inside the band), C:0.0%,
+        # too few Complete BUSCOs for any depth measurement. Graded EXCELLENT before.
+        merged = gate.recheck_against_assembly(
+            self.base(), 8_914_437, None,
+            {"status": "too_few_busco_regions", "partition_status": "no_contig_depth"},
+            busco_complete=0.0)
+        self.assertEqual(merged["genome_size_flags"], "assembly_lacks_host_gene_space")
+        self.assertEqual(merged["coverage_status"], "UNRELIABLE_GENOME_SIZE_ESTIMATE")
+        self.assertEqual(merged["busco_complete"], 0.0)
+
+    def test_the_floor_is_inclusive(self):
+        at = gate.recheck_against_assembly(self.base(), 15_000_000, None, None, 10.0)
+        below = gate.recheck_against_assembly(self.base(), 15_000_000, None, None, 9.9)
+        self.assertTrue(at["genome_size_reliable"])
+        self.assertIn("assembly_lacks_host_gene_space", below["genome_size_flags"])
+
+    def test_no_busco_result_is_not_a_failure(self):
+        merged = gate.recheck_against_assembly(self.base(), 15_000_000, None, None, None)
+        self.assertTrue(merged["genome_size_reliable"])
+        self.assertIsNone(merged["busco_complete"])
+
+    def test_completeness_is_read_from_the_short_summary_json(self):
+        path = write(json.dumps({"results": {
+            "one_line_summary": "C:0.9%[S:0.7%,D:0.1%],F:4.2%,M:94.9%,n:672",
+            "Complete percentage": 0.9}}), suffix=".json")
+        self.assertEqual(gate.busco_complete_from_summary(path), 0.9)
+
+    def test_falls_back_to_the_one_line_summary(self):
+        path = write(json.dumps({"results": {"one_line_summary": "C:73.8%[S:72.0%,D:1.8%]"}}),
+                     suffix=".json")
+        self.assertEqual(gate.busco_complete_from_summary(path), 73.8)
+
+    def test_an_unreadable_summary_is_none(self):
+        self.assertIsNone(gate.busco_complete_from_summary("/nonexistent/summary.json"))
+
+    def test_cli_flags_from_the_summary_file(self):
+        import contextlib
+        import io
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "cov.json").write_text(json.dumps(self.base()))
+            (root / "seqkit.tsv").write_text(
+                "file\tformat\ttype\tnum_seqs\tsum_len\nx.fa\tFASTA\tDNA\t13692\t8914437\n")
+            (root / "busco.json").write_text(json.dumps({"results": {"Complete percentage": 0.0}}))
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                gate.main(["--recheck-assembly", "--coverage-json", str(root / "cov.json"),
+                           "--seqkit-stats", str(root / "seqkit.tsv"),
+                           "--busco-summary", str(root / "busco.json")])
+        merged = json.loads(buffer.getvalue())
+        self.assertIn("assembly_lacks_host_gene_space", merged["genome_size_flags"])
+
+
+class PartitionConfidenceGateTests(unittest.TestCase):
+    """Which host size the ratio is taken against, now that a partition can say it is
+    not to be trusted."""
+
+    def base(self, size):
+        return {"estimated_genome_size": size, "genome_size_flags": "",
+                "genome_size_reliable": True, "coverage_status": "EXCELLENT"}
+
+    def test_a_low_confidence_partition_falls_back_to_the_total_assembly(self):
+        # OG2942: 60 BUSCO regions, anchor 4.4x the assembly's depth mode, "host" 190 of
+        # 1,458 Mb.
+        merged = gate.recheck_against_assembly(
+            self.base(114_000_000), 1_457_700_000, None,
+            {"partition_status": "ok", "host_assembly_size": 190_223_452,
+             "host_haploid_size": 147_000_000, "partition_confidence": "low",
+             "partition_note": "anchor_off_mode",
+             "host_assembly_size_mode_anchored": 1_165_000_000})
+        self.assertEqual(merged["assembly_ratio_basis"], "total")
+        self.assertEqual(merged["assembly_ratio_denominator"], 1_457_700_000)
+        self.assertEqual(merged["partition_note"], "anchor_off_mode")
+        self.assertEqual(merged["host_assembly_size_mode_anchored"], 1_165_000_000)
+
+    def test_the_haploid_host_size_is_the_denominator_when_present(self):
+        # OG3074: 494 Mb counting both haplotypes of split loci, 428 Mb counting them once.
+        merged = gate.recheck_against_assembly(
+            self.base(338_000_000), 567_000_000, None,
+            {"partition_status": "ok", "host_assembly_size": 493_804_448,
+             "host_haploid_size": 428_000_000, "partition_confidence": "high"})
+        self.assertEqual(merged["assembly_ratio_basis"], "host")
+        self.assertEqual(merged["assembly_ratio_denominator"], 428_000_000)
+        self.assertTrue(merged["genome_size_reliable"])
+
+    def test_a_partition_from_before_confidence_existed_is_trusted_as_before(self):
+        merged = gate.recheck_against_assembly(
+            self.base(103_500_000), 328_000_000, None,
+            {"partition_status": "ok", "host_assembly_size": 207_000_000})
+        self.assertEqual(merged["assembly_ratio_basis"], "host")
+        self.assertEqual(merged["assembly_ratio_denominator"], 207_000_000)

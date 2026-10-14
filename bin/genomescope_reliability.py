@@ -62,6 +62,7 @@ DEFAULTS = {
     "min_host_depth_ratio": 0.4,    # BUSCO-gene depth over assembly-wide depth
     "min_seedable_lambda": 5.0,     # below this there is no host signal to fit
     "min_reseed_fit_gain": 2.0,     # points of model_fit_full a reseed must win to be kept
+    "min_busco_complete": 10.0,     # BUSCO C% below which the assembly is not the host's
 }
 
 
@@ -287,7 +288,28 @@ def assembly_size_from_seqkit(path):
         return None
 
 
-def recheck_against_assembly(coverage, assembly_size, thresholds=None, kmer_depth=None):
+def busco_complete_from_summary(path):
+    """BUSCO completeness (C%) from a short_summary JSON, or None when it cannot be read.
+
+    Unreadable is not a failure here: a missing completeness costs one check, and the
+    rest of the recheck still stands."""
+    try:
+        with open(path) as handle:
+            results = json.load(handle).get("results", {})
+    except (OSError, ValueError, AttributeError):
+        return None
+    value = results.get("Complete percentage")
+    if value is None:
+        match = re.search(r"C:([0-9.]+)%", results.get("one_line_summary") or "")
+        value = match.group(1) if match else None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def recheck_against_assembly(coverage, assembly_size, thresholds=None, kmer_depth=None,
+                             busco_complete=None):
     """Add the checks that need the finished assembly to an existing coverage summary.
 
     Kept separate from evaluate() because it runs at a different point in the pipeline:
@@ -298,6 +320,12 @@ def recheck_against_assembly(coverage, assembly_size, thresholds=None, kmer_dept
     can contradict GenomeScope on its own terms: lambda estimated from read depth over
     single-copy BUSCO genes. A factor of two between that and the fitted kmercov is a
     factor of two in the genome size, in the opposite direction.
+
+    `busco_complete` is the assembly's BUSCO C%. Below the floor the assembly does not
+    contain the host's gene space, so a size estimate that agrees with it is agreeing
+    with something other than the host: OG3080 was graded EXCELLENT on an 8.9 Mb
+    assembly at C:0.0% because its 15.5 Mb estimate matched that assembly, and with too
+    few Complete BUSCOs to measure read depth none of the depth checks could fire.
     """
     cfg = dict(DEFAULTS, **(thresholds or {}))
     merged = dict(coverage)
@@ -318,8 +346,20 @@ def recheck_against_assembly(coverage, assembly_size, thresholds=None, kmer_dept
     # number in the denominator -- in exactly the samples this check exists for. Where the
     # depth partition succeeded, use the host mass instead, and record which was used so
     # the ratio can always be reproduced.
-    host_size = (kmer_depth or {}).get("host_assembly_size")
-    if (kmer_depth or {}).get("partition_status") == "ok" and host_size:
+    #
+    # Only a confident partition earns that. The partition is keyed on BUSCO-gene depth,
+    # and with few Complete BUSCOs those genes sit in the best-covered corner of the
+    # assembly rather than at the host's typical depth: OG2942's 60 regions put the anchor
+    # at 27x while 80% of its assembly formed one mode near 6x, and the "host" came out
+    # as 190 of 1,458 Mb. A partition written before confidence existed is trusted as
+    # before, so republishing old rows changes nothing.
+    #
+    # The haploid host size counts each haplotype-split pair once. The plain host size
+    # counts both copies, which is what put OG3074 at 494 Mb against GenomeScope's 338.
+    kd = kmer_depth or {}
+    host_size = kd.get("host_haploid_size") or kd.get("host_assembly_size")
+    confident = kd.get("partition_confidence", "high") == "high"
+    if kd.get("partition_status") == "ok" and host_size and confident:
         ratio_basis, ratio_denominator = "host", host_size
     else:
         ratio_basis, ratio_denominator = "total", assembly_size
@@ -353,7 +393,10 @@ def recheck_against_assembly(coverage, assembly_size, thresholds=None, kmer_dept
         # animal. It needs no k-mer peak, so it still answers where GenomeScope cannot.
         for key in ("host_assembly_size", "host_assembly_fraction",
                     "symbiont_assembly_size", "low_depth_assembly_size",
-                    "host_contig_count", "partition_status"):
+                    "host_contig_count", "partition_status",
+                    "host_collapsed_size", "host_haplotig_size", "host_haploid_size",
+                    "depth_mode", "anchor_over_mode", "partition_confidence",
+                    "partition_note", "host_assembly_size_mode_anchored"):
             merged[key] = kmer_depth.get(key)
 
         if lam and kmercov:
@@ -372,6 +415,10 @@ def recheck_against_assembly(coverage, assembly_size, thresholds=None, kmer_dept
             # Reported rather than inferred from a bad fit: at this coverage there is no
             # host peak to model and no starting value can produce one.
             add("host_coverage_too_low")
+
+    merged["busco_complete"] = busco_complete
+    if busco_complete is not None and busco_complete < cfg["min_busco_complete"]:
+        add("assembly_lacks_host_gene_space")
 
     merged["assembly_size"] = assembly_size
     merged["assembly_cross_check"] = "done" if assembly_size else "no_assembly_size"
@@ -445,6 +492,7 @@ def main(argv=None):
     parser.add_argument("--coverage-json", help="with --recheck-assembly: the summary to update")
     parser.add_argument("--seqkit-stats", help="with --recheck-assembly: seqkit stats for the assembly")
     parser.add_argument("--kmer-depth-json", help="with --recheck-assembly: MEASURE_KMER_COVERAGE output")
+    parser.add_argument("--busco-summary", help="with --recheck-assembly: BUSCO short_summary JSON")
     for name, value in DEFAULTS.items():
         parser.add_argument(f"--{name.replace('_', '-')}", type=type(value), default=value)
     args = parser.parse_args(argv)
@@ -459,8 +507,11 @@ def main(argv=None):
         if args.kmer_depth_json:
             with open(args.kmer_depth_json) as handle:
                 kmer_depth = json.load(handle)
+        busco_complete = (busco_complete_from_summary(args.busco_summary)
+                          if args.busco_summary else None)
         merged = recheck_against_assembly(
-            coverage, assembly_size_from_seqkit(args.seqkit_stats), thresholds, kmer_depth)
+            coverage, assembly_size_from_seqkit(args.seqkit_stats), thresholds, kmer_depth,
+            busco_complete)
         json.dump(merged, sys.stdout, indent=2)
         sys.stdout.write("\n")
         return 0

@@ -166,7 +166,7 @@ An [example samplesheet](../assets/samplesheet.csv) has been provided with the p
 
 `bin/backfill_draft_genome_stats.py` reads only small report files from mounted
 object-storage archives. The `genomes.v2` Acacia backup intentionally excludes
-`fastp/`; mount `s3:oceanomics/OceanGenomes/analysed-data/draft-genomes` as a
+`fastp/`; mount `s3:ocom.oceangenomes/analysed-data/draft-genomes` as a
 second read-only tree and pass it with `--fastp-root`. The command does not stage
 FASTQs, assemblies, or Meryl databases. Run it inside a Slurm compute allocation
 where both mounts and the PostgreSQL service are reachable.

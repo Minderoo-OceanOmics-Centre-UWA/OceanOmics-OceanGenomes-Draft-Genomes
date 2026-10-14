@@ -271,3 +271,86 @@ class PartitionTests(unittest.TestCase):
             result = run_main(tmp, bedcov="ctg1\t0\t1000\tb1\t100000\n")
         self.assertEqual(result["partition_status"], "no_contig_depth")
         self.assertIsNone(result["host_assembly_size"])
+
+
+def bedcov_rows(n, depth=30.0, length=1000):
+    """n BUSCO regions at a uniform per-base depth, as samtools bedcov reports them."""
+    return "".join(f"ctg{i}\t0\t{length}\tb{i}\t{depth * length}\n" for i in range(n))
+
+
+class DepthModeTests(unittest.TestCase):
+    def test_finds_the_heaviest_depth_on_a_bimodal_profile(self):
+        rows = ([(f"h{i}", 1_000_000, 6.0) for i in range(8)]
+                + [(f"b{i}", 1_000_000, 27.0) for i in range(2)])
+        mode = kdl.find_depth_mode(rows)
+        self.assertGreater(mode, 5.0)
+        self.assertLess(mode, 7.0)
+
+    def test_short_contigs_do_not_vote(self):
+        rows = [("long", 1_000_000, 50.0)] + [(f"s{i}", 400, 5.0) for i in range(1000)]
+        self.assertGreater(kdl.find_depth_mode(rows), 40.0)
+
+    def test_nothing_usable_is_none(self):
+        self.assertIsNone(kdl.find_depth_mode([("s", 100, 5.0)]))
+
+
+class PartitionConfidenceTests(unittest.TestCase):
+    def test_an_anchor_far_above_the_mode_is_low_confidence(self):
+        # OG2942: 60 regions at 27.4x while 80% of the assembly sits near 6x.
+        self.assertEqual(kdl.partition_confidence(60, 27.4, 6.2, 0.8),
+                         ("low", "anchor_off_mode"))
+
+    def test_too_few_regions_is_low_confidence_whatever_the_anchor(self):
+        self.assertEqual(kdl.partition_confidence(25, 51.2, 50.0, 0.8),
+                         ("low", "few_busco_regions"))
+
+    def test_no_dominant_mode_is_low_confidence(self):
+        self.assertEqual(kdl.partition_confidence(447, 30.8, 24.7, 0.3),
+                         ("low", "no_dominant_mode"))
+
+    def test_an_anchor_on_the_mode_is_high_confidence(self):
+        # OG2906: 260 regions, anchor 70.0x, mode 69.8x.
+        self.assertEqual(kdl.partition_confidence(260, 70.0, 69.8, 0.9), ("high", None))
+
+    def test_og2942_shape_end_to_end(self):
+        # The BUSCO anchor keeps reporting what it always did; the mode-anchored size is
+        # reported beside it, and the row says why the anchored one is not to be quoted.
+        contig_rows = ([(f"low{i}", 1_000_000, 6.0) for i in range(80)]
+                       + [(f"hi{i}", 1_000_000, 27.0) for i in range(10)])
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run_main(tmp, contig_rows=contig_rows,
+                              bedcov=bedcov_rows(60, depth=27.4))
+        self.assertEqual(result["partition_confidence"], "low")
+        self.assertEqual(result["host_assembly_size"], 10_000_000)
+        self.assertEqual(result["host_assembly_size_mode_anchored"], 80_000_000)
+
+    def test_og2906_control_is_unchanged_and_confident(self):
+        contig_rows = [(f"c{i}", 1_000_000, 70.0) for i in range(30)]
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run_main(tmp, contig_rows=contig_rows,
+                              bedcov=bedcov_rows(260, depth=70.0))
+        self.assertEqual(result["partition_confidence"], "high")
+        self.assertIsNone(result["partition_note"])
+        self.assertEqual(result["host_assembly_size"], 30_000_000)
+        self.assertIsNone(result["host_assembly_size_mode_anchored"])
+
+
+class HaplotigTests(unittest.TestCase):
+    def test_half_depth_contigs_are_split_out_of_the_host_band(self):
+        # OG3074's shape: collapsed loci at the host's depth, haplotype-split pairs at half.
+        rows = ([(f"c{i}", 1_000_000, 130.0) for i in range(36)]
+                + [(f"h{i}", 1_000_000, 70.0) for i in range(13)])
+        totals, counts, _band = kdl.partition_by_depth(rows, 133.6)
+        self.assertEqual(totals["host"], 49_000_000)
+        self.assertEqual(totals["host_collapsed"], 36_000_000)
+        self.assertEqual(totals["host_haplotig"], 13_000_000)
+        self.assertEqual(counts["host_haplotig"], 13)
+
+    def test_haploid_size_counts_each_split_pair_once(self):
+        contig_rows = ([(f"c{i}", 1_000_000, 130.0) for i in range(36)]
+                       + [(f"h{i}", 1_000_000, 70.0) for i in range(14)])
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run_main(tmp, contig_rows=contig_rows,
+                              bedcov=bedcov_rows(1800, depth=133.6))
+        self.assertEqual(result["host_assembly_size"], 50_000_000)
+        self.assertEqual(result["host_haploid_size"], 43_000_000)
