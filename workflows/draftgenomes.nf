@@ -13,6 +13,7 @@ include { UPLOAD_RESULTS            } from '../subworkflows/local/upload_results
 
 // Modules
 include { TRIGGER_MITOGENOME        } from '../modules/local/trigger_mitogenome'
+include { CALCULATE_SEQUENCING_COVERAGE } from '../modules/local/coverage/calculations'
 include { MULTIQC                   } from '../modules/nf-core/multiqc/main'
 include { MULTIQC_PER_SAMPLE        } from '../modules/local/multiqc_per_sample/main'
 include { TAXON                     } from '../modules/local/taxon_from_db'
@@ -160,6 +161,10 @@ workflow OCEANGENOMES_DRAFTGENOMES {
             }
 
         ch_precomputed_genomescope_summary = warnIfEmpty(Channel.fromPath(params.precomputed_genomescope_summary, checkIfExists: false), params.precomputed_genomescope_summary)
+        // GENOMESCOPE_RESEED publishes its refit beside the original as *_reseeded_*, which
+        // the glob also matches; both would key to one sample and the join would keep
+        // whichever arrived first. The provisional summary is built from the original fit.
+        .filter { file -> !file.name.contains('_reseeded_') }
         .map { file ->
             // Extract sample_id from the file basename
             def file_name = file.baseName
@@ -170,20 +175,13 @@ workflow OCEANGENOMES_DRAFTGENOMES {
             .join(ch_precomputed_genomescope_summary)
             .map { key, meta, file -> tuple(meta, file) }
 
-        // The coverage summary is re-checked against the assembly during QC, so it has to
-        // be available even when assembly is skipped and the k-mer stage never ran.
-        ch_precomputed_coverage_summary = warnIfEmpty(Channel.fromPath(params.precomputed_coverage_summary, checkIfExists: false), params.precomputed_coverage_summary)
-        .map { file ->
-            def sample_id = file.baseName.split('\\_')[0] // drops the '_coverage_summary' suffix
-            tuple(sample_id, file)
-        }
-        ch_coverage_summary = ch_meta_by_prefix
-            .join(ch_precomputed_coverage_summary)
-            .map { key, meta, file -> tuple(meta, file) }
-
         // The fitted kmercov, needed by MEASURE_KMER_COVERAGE in QC for the read-depth
         // comparison, so it has to survive a skipped assembly stage like the summary does.
         ch_precomputed_genomescope_model = warnIfEmpty(Channel.fromPath(params.precomputed_genomescope_model, checkIfExists: false), params.precomputed_genomescope_model)
+        // GENOMESCOPE_RESEED publishes its refit beside the original as *_reseeded_*, which
+        // the glob also matches; both would key to one sample and the join would keep
+        // whichever arrived first. The provisional summary is built from the original fit.
+        .filter { file -> !file.name.contains('_reseeded_') }
         .map { file ->
             def sample_id = file.baseName.split('\\_')[0] // drops the '_genomescope2_model' suffix
             tuple(sample_id, file)
@@ -200,6 +198,38 @@ workflow OCEANGENOMES_DRAFTGENOMES {
         ch_meryl_hist = ch_meta_by_prefix
             .join(ch_precomputed_meryl_hist)
             .map { key, meta, file -> tuple(meta, file) }
+
+        // The coverage summary is re-checked against the assembly during QC, so it has to
+        // be available even when assembly is skipped and the k-mer stage never ran.
+        //
+        // Where QC will run, it is recomputed from the published GenomeScope files rather
+        // than read back. The published summary is whatever the gate of its day produced,
+        // and the recheck only adds to it: NOVA_260909_LA's 16 skip-tier samples kept a
+        // September parse that read GenomeScope's "-1 bp" as 1 bp (OG2653, 18 billion x)
+        // and an "Inf bp" bound as 35.8 Mb (OG2647), and missed the k-mer checks on 9 of 16.
+        // Recomputing is a few seconds of Python per sample.
+        //
+        // With QC skipped there is no recheck to follow, so the published summary is the
+        // final verdict and is the one to carry forward.
+        if (!params.skip_genome_qc) {
+            // Joined on the sample id, not the whole meta: the fastp branch builds its own.
+            ch_coverage_calc = ch_fastp_json.map { meta, file -> tuple(meta.id, meta, file) }
+                .join(ch_genomescope_summary.map { meta, file -> tuple(meta.id, file) })
+                .join(ch_genomescope_model.map { meta, file -> tuple(meta.id, file) })
+                .join(ch_meryl_hist.map { meta, file -> tuple(meta.id, file) })
+                .map { _id, meta, fastp, summary, model, hist -> tuple(meta, fastp, summary, model, hist) }
+            CALCULATE_SEQUENCING_COVERAGE(ch_coverage_calc)
+            ch_coverage_summary = CALCULATE_SEQUENCING_COVERAGE.out.coverage_json_meta
+        } else {
+            ch_precomputed_coverage_summary = warnIfEmpty(Channel.fromPath(params.precomputed_coverage_summary, checkIfExists: false), params.precomputed_coverage_summary)
+            .map { file ->
+                def sample_id = file.baseName.split('\\_')[0] // drops the '_coverage_summary' suffix
+                tuple(sample_id, file)
+            }
+            ch_coverage_summary = ch_meta_by_prefix
+                .join(ch_precomputed_coverage_summary)
+                .map { key, meta, file -> tuple(meta, file) }
+        }
 
         ch_precomputed_meryl_db = warnIfEmpty(Channel.fromPath(params.precomputed_meryl_results, type: 'dir', checkIfExists: false), params.precomputed_meryl_results)
         .map { meryl_dir ->

@@ -255,6 +255,25 @@ Generalised from "fish + corals" to all invertebrates.
 
 ### `Fixed`
 
+- **Skip-assembly runs recompute the provisional coverage summary.** With
+  `--skip_genome_assembly` and QC enabled, `CALCULATE_SEQUENCING_COVERAGE` now runs on the
+  published fastp JSON and GenomeScope summary, model and histogram instead of reading back
+  the published `*_coverage_summary.json`, which the recheck only adds to. NOVA_260909_LA's
+  16 skip-tier samples kept a September parse: OG2653's GenomeScope "-1 bp" was read as a
+  1 bp genome (18,007,370,181x), OG2647's "Inf bp" bound as 35.8 Mb, and 9 of 16 lacked the
+  current k-mer flags. With QC skipped the published summary is still carried forward, as
+  it is the final verdict. The precomputed GenomeScope globs now exclude
+  `*_reseeded_*` files, which keyed to the same sample as the original fit (OG2628, OG2949,
+  OG3057).
+- **`RECHECK_GENOME_SIZE` rejects a genome size of 1 bp or less** as
+  `no_genome_size_estimate` and zeroes the coverage figures derived from it.
+- **`*_sequencing_coverage.txt` is rewritten by `RECHECK_GENOME_SIZE`.** It was written only
+  by the provisional step, so the recheck's flags never reached it: in 8 NOVA_260909_LA
+  samples the text said EXCELLENT beside a JSON marked unreliable, and OG2617's said
+  "reliable: yes". Both steps now render it from the summary JSON with
+  `genomescope_reliability.py --render-report`, and it states whether the verdict is
+  provisional or final.
+
 - **GFASTATS died on a collapsed GenomeScope fit.** OG2653's model returned `-1` for every
   property at Model Fit 0%; the module parsed that `-1` out of the summary and passed it as
   gfastats' expected-size positional, and gfastats aborted with

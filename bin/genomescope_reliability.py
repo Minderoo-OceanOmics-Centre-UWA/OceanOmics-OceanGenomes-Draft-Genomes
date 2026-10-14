@@ -341,6 +341,19 @@ def recheck_against_assembly(coverage, assembly_size, thresholds=None, kmer_dept
         if flag not in flags:
             flags.append(flag)
 
+    # GenomeScope writes "-1 bp" when it fails outright, and the parser before this one
+    # matched `([0-9,]+) bp` and dropped the sign: OG2653 reached this point as a 1 bp
+    # genome at 18,007,370,181x. A summary from a run that old can still arrive here as a
+    # precomputed input, so no size this small is taken as an estimate, and the coverage
+    # figures derived from it go back to the 0 the coverage step writes for no estimate.
+    if size <= 1:
+        if "non_finite_genome_size" not in flags:
+            add("no_genome_size_estimate")
+        size = 0
+        merged["estimated_genome_size"] = 0
+        merged["theoretical_coverage"] = 0
+        merged["coverage_before_filtering"] = 0
+
     # Which assembly size the ratio is taken against. GenomeScope estimates the HOST
     # genome, so comparing it to a total assembly that can be half symbiont puts the wrong
     # number in the denominator -- in exactly the samples this check exists for. Where the
@@ -435,6 +448,88 @@ def recheck_against_assembly(coverage, assembly_size, thresholds=None, kmer_dept
     return merged
 
 
+def render_text_report(summary):
+    """The human-readable *_sequencing_coverage.txt for a coverage summary.
+
+    One renderer for both the provisional summary and the rechecked one, because the text
+    file used to be written only by the provisional step: RECHECK_GENOME_SIZE replaced the
+    JSON beside it and left the text saying "reliable: yes / EXCELLENT" for OG2617 after
+    the read-depth check had flagged it. Reads nothing but the summary, so the two files
+    cannot disagree."""
+    s = summary
+
+    def num(value, fmt="{:,}"):
+        return "NA" if value is None else fmt.format(value)
+
+    def pct(value):
+        return "NA" if value is None else f"{value:.4f}%"
+
+    final = s.get("assembly_cross_check") not in (None, "pending")
+    flags = [f for f in (s.get("genome_size_flags") or "").split("; ") if f]
+    size = s.get("estimated_genome_size") or 0
+    coverage = s.get("theoretical_coverage") or 0
+
+    lines = ["SEQUENCING COVERAGE ANALYSIS", "=" * 50, ""]
+    lines.append(f"Sample ID: {s.get('sample_id', 'NA')}")
+    lines.append("Verdict: " + ("final (assembly cross-check done)" if final else
+                                "PROVISIONAL (assembly cross-check not run yet)"))
+    lines.append("")
+
+    lines.append("GENOME SIZE ESTIMATION (GenomeScope):")
+    lines.append(f"  Estimated genome size: {num(size) + ' bp' if size else 'none'}")
+    if s.get("genome_size_min") and s.get("genome_size_max"):
+        lines.append(f"  Genome size range: {s['genome_size_min']:,} - {s['genome_size_max']:,} bp")
+    lines.append(f"  Estimated heterozygosity: {pct(s.get('heterozygosity_min'))} - "
+                 f"{pct(s.get('heterozygosity_max'))}")
+    lines.append(f"  Model fit (full model): {pct(s.get('model_fit_full', s.get('model_fit_max')))}")
+    lines.append(f"  K-mers modelled (all k-mers): "
+                 f"{pct(s.get('model_fit_allkmers', s.get('model_fit_min')))}")
+    lines.append("")
+
+    lines.append("SEQUENCING STATISTICS (FastP):")
+    lines.append(f"  Reads after filtering: {num(s.get('total_reads_after_filtering'))}")
+    lines.append(f"  Bases after filtering: {num(s.get('total_bases_after_filtering'))} bp")
+    lines.append(f"  Data retention: {num(s.get('data_retention_percent'), '{:.1f}')}%")
+    lines.append(f"  Theoretical coverage before filtering: "
+                 f"{num(s.get('coverage_before_filtering'), '{:.1f}')}x")
+    lines.append(f"  Theoretical coverage after filtering: {coverage:.1f}x")
+    lines.append("")
+
+    peak, kmercov, lam = s.get("kmer_peak_coverage"), s.get("kmercov"), s.get("lambda_depth")
+    lines.append("K-MER COVERAGE:")
+    lines.append(f"  K-mer peak coverage: {f'{peak}x' if peak else 'none detected'}")
+    lines.append(f"  Fitted k-mer coverage (GenomeScope kmercov): "
+                 f"{f'{kmercov:.1f}x' if kmercov else 'NA'}")
+    if final:
+        lines.append(f"  Measured k-mer coverage (BUSCO read depth): "
+                     f"{f'{lam:.1f}x' if lam else 'NA'}")
+    lines.append("")
+
+    if final:
+        lines.append("ASSEMBLY CROSS-CHECK:")
+        lines.append(f"  Decontaminated assembly size: {num(s.get('assembly_size'))} bp")
+        lines.append(f"  Compared against: {s.get('assembly_ratio_basis') or 'NA'} assembly "
+                     f"({num(s.get('assembly_ratio_denominator'))} bp)")
+        fraction = s.get("host_assembly_fraction")
+        lines.append(f"  Host fraction of assembly (lower bound): "
+                     f"{f'{fraction * 100:.1f}%' if fraction is not None else 'NA'}")
+        lines.append(f"  BUSCO complete: {num(s.get('busco_complete'), '{:.1f}')}%")
+        lines.append("")
+
+    lines.append("COVERAGE ASSESSMENT:")
+    lines.append(f"  Genome size estimate reliable: {'yes' if s.get('genome_size_reliable') else 'no'}")
+    if flags:
+        lines.append(f"  Genome size warnings: {', '.join(flags)}")
+    status = s.get("coverage_status") or "NA"
+    if status == "UNRELIABLE_GENOME_SIZE_ESTIMATE":
+        # The number is still reported, but never next to a grade it does not support.
+        lines.append(f"  Status: {status} (theoretical coverage {coverage:.1f}x, not trustworthy)")
+    else:
+        lines.append(f"  Status: {status} coverage ({coverage:.1f}x)")
+    lines.append(f"  Recommendation: {s.get('coverage_recommendation') or 'NA'}")
+    return "\n".join(lines) + "\n"
+
+
 def choose_reseeded_fit(original, reseeded, lambda_depth, thresholds=None):
     """Which of two GenomeScope fits to keep after reseeding -l with the measured lambda.
 
@@ -493,10 +588,17 @@ def main(argv=None):
     parser.add_argument("--seqkit-stats", help="with --recheck-assembly: seqkit stats for the assembly")
     parser.add_argument("--kmer-depth-json", help="with --recheck-assembly: MEASURE_KMER_COVERAGE output")
     parser.add_argument("--busco-summary", help="with --recheck-assembly: BUSCO short_summary JSON")
+    parser.add_argument("--render-report", metavar="COVERAGE_JSON",
+                        help="print the *_sequencing_coverage.txt for a coverage summary")
     for name, value in DEFAULTS.items():
         parser.add_argument(f"--{name.replace('_', '-')}", type=type(value), default=value)
     args = parser.parse_args(argv)
     thresholds = {name: getattr(args, name) for name in DEFAULTS}
+
+    if args.render_report:
+        with open(args.render_report) as handle:
+            sys.stdout.write(render_text_report(json.load(handle)))
+        return 0
 
     if args.recheck_assembly:
         if not args.coverage_json or not args.seqkit_stats:

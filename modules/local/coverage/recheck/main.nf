@@ -29,6 +29,9 @@ process RECHECK_GENOME_SIZE {
 
     output:
     tuple val(meta), path("*_coverage_summary.json"), emit: coverage_json
+    // Rewritten from the final summary. Left alone, the provisional step's text file kept
+    // its pre-assembly verdict beside a JSON that had since been flagged.
+    tuple val(meta), path("*_sequencing_coverage.txt"), emit: coverage_report
     tuple val(meta), path("*_genome_size_recheck_mqc.yaml"), emit: multiqc
     tuple val(meta), path("28_recheck_genome_size.tool_params_mqcrow.html"), emit: tool_params
     path "versions.yml", emit: versions
@@ -62,6 +65,11 @@ merged = json.loads(subprocess.check_output([
 
 with open("${prefix}_coverage_summary.json", "w") as f:
     json.dump(merged, f, indent=2)
+
+with open("${prefix}_sequencing_coverage.txt", "w") as f:
+    f.write(subprocess.check_output(
+        ["genomescope_reliability.py", "--render-report", "${prefix}_coverage_summary.json"],
+        text=True))
 
 size = merged.get("estimated_genome_size") or 0
 assembly_size = merged.get("assembly_size") or 0

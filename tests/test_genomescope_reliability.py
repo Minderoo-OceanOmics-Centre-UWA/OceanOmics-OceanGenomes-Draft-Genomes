@@ -547,3 +547,84 @@ class PartitionConfidenceGateTests(unittest.TestCase):
             {"partition_status": "ok", "host_assembly_size": 207_000_000})
         self.assertEqual(merged["assembly_ratio_basis"], "host")
         self.assertEqual(merged["assembly_ratio_denominator"], 207_000_000)
+
+
+class StaleSizeTests(unittest.TestCase):
+    """A provisional summary from an older parse can reach the recheck as a precomputed
+    input. GenomeScope's failure value is "-1 bp", which that parser read as 1 bp."""
+
+    def test_a_one_bp_genome_is_no_estimate(self):
+        # OG2653 as published: 1 bp, 18,007,370,181x, flagged only for disagreeing with
+        # the assembly.
+        coverage = {"estimated_genome_size": 1, "genome_size_flags": "",
+                    "genome_size_reliable": True, "coverage_status": "EXCELLENT",
+                    "theoretical_coverage": 18007370181.0, "coverage_before_filtering": 2e10}
+        merged = gate.recheck_against_assembly(coverage, 185_000_000)
+        self.assertEqual(merged["genome_size_flags"], "no_genome_size_estimate")
+        self.assertEqual(merged["estimated_genome_size"], 0)
+        self.assertEqual(merged["theoretical_coverage"], 0)
+        self.assertEqual(merged["coverage_before_filtering"], 0)
+        self.assertEqual(merged["coverage_status"], "UNRELIABLE_GENOME_SIZE_ESTIMATE")
+
+    def test_a_non_finite_size_keeps_its_own_flag(self):
+        coverage = {"estimated_genome_size": 0, "genome_size_flags": "non_finite_genome_size",
+                    "genome_size_reliable": False}
+        merged = gate.recheck_against_assembly(coverage, 185_000_000)
+        self.assertEqual(merged["genome_size_flags"], "non_finite_genome_size")
+
+    def test_the_current_parser_reads_minus_one_as_a_failure(self):
+        parsed = gate.parse_summary(write(summary(haploid="-1|-1")))
+        flags, details = gate.evaluate(parsed, {})
+        self.assertIn("no_genome_size_estimate", flags)
+
+
+class TextReportTests(unittest.TestCase):
+    """The text report is rendered from the summary, so it cannot disagree with it."""
+
+    def provisional(self):
+        return {"sample_id": "OG2617", "estimated_genome_size": 363_338_117,
+                "genome_size_min": 351_373_409, "genome_size_max": 363_338_117,
+                "model_fit_allkmers": 48.4, "model_fit_full": 83.5,
+                "heterozygosity_min": 3.9, "heterozygosity_max": 12.4,
+                "total_reads_after_filtering": 163_999_458,
+                "total_bases_after_filtering": 24_362_957_504,
+                "theoretical_coverage": 67.05, "coverage_before_filtering": 77.8,
+                "data_retention_percent": 86.2, "kmer_peak_coverage": 13, "kmercov": 17.92,
+                "genome_size_reliable": True, "genome_size_flags": "",
+                "coverage_status": "EXCELLENT",
+                "coverage_recommendation": "Suitable for high-quality genome assembly.",
+                "assembly_cross_check": "pending"}
+
+    def test_provisional_is_labelled(self):
+        text = gate.render_text_report(self.provisional())
+        self.assertIn("PROVISIONAL", text)
+        self.assertIn("Status: EXCELLENT coverage (67.0x)", text)
+        self.assertNotIn("ASSEMBLY CROSS-CHECK", text)
+
+    def test_rechecked_report_follows_the_flags(self):
+        # OG2617: k-mer checks passed, then the read-depth check flagged it. The old text
+        # file still said "reliable: yes / EXCELLENT".
+        merged = gate.recheck_against_assembly(
+            self.provisional(), 829_293_888, None,
+            {"lambda_depth": 9.17, "partition_status": "ok",
+             "host_assembly_size": 709_148_311, "host_assembly_fraction": 0.855})
+        text = gate.render_text_report(merged)
+        self.assertIn("final (assembly cross-check done)", text)
+        self.assertIn("Genome size estimate reliable: no", text)
+        self.assertIn("fitted_coverage_disagrees_with_read_depth", text)
+        self.assertIn("UNRELIABLE_GENOME_SIZE_ESTIMATE (theoretical coverage 67.0x, not trustworthy)", text)
+        self.assertNotIn("EXCELLENT", text)
+        self.assertIn("Host fraction of assembly (lower bound): 85.5%", text)
+
+    def test_renders_a_summary_with_fields_missing(self):
+        text = gate.render_text_report({"sample_id": "X", "assembly_cross_check": "done"})
+        self.assertIn("Estimated genome size: none", text)
+
+    def test_cli_renders_from_a_file(self):
+        import contextlib
+        import io
+        path = write(json.dumps(self.provisional()), suffix=".json")
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            gate.main(["--render-report", path])
+        self.assertEqual(buffer.getvalue(), gate.render_text_report(self.provisional()))
