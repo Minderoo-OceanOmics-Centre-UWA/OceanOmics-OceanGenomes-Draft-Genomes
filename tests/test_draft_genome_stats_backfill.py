@@ -139,16 +139,21 @@ class ParserAndDiscoveryTests(unittest.TestCase):
         sample = backfill.discover_sample(self.root, "OG1", "250101")
         self.assertFalse(sample.valid)
 
-    def test_reseeded_genomescope_summary_is_ignored(self):
-        # GENOMESCOPE_RESEED publishes its refit beside the original; the glob matched it
-        # and its name parses to no OG ID, which failed OG2628, OG2949 and OG3057.
+    def test_reseeded_genomescope_summary_is_preferred(self):
+        # GENOMESCOPE_RESEED publishes its refit only when it won, and the pipeline uploads
+        # the fit it chose, so where a refit exists the backfill takes it.
         original = next((self.root / "OG1/kmers").glob("*_genomescope/*_summary.txt"))
-        write(original.with_name("OG1.ilmn.250101_genomescope2_reseeded_summary.txt"),
-              original.read_text(encoding="utf-8").replace("1000 bp", "300 bp"))
+        refit = write(original.with_name("OG1.ilmn.250101_genomescope2_reseeded_summary.txt"),
+                      original.read_text(encoding="utf-8").replace("1000 bp", "300 bp"))
         sample = backfill.discover_sample(self.root, "OG1", "250101")
         self.assertTrue(sample.valid, sample.errors)
+        self.assertEqual(sample.paths["genomescope"], refit)
+        self.assertEqual(sample.records["assembly"]["genomesize"], 300)
+
+    def test_original_genomescope_summary_is_used_without_a_refit(self):
+        original = next((self.root / "OG1/kmers").glob("*_genomescope/*_summary.txt"))
+        sample = backfill.discover_sample(self.root, "OG1", "250101")
         self.assertEqual(sample.paths["genomescope"], original)
-        self.assertEqual(sample.records["assembly"]["genomesize"], 1000)
 
     def two_lineages(self):
         busco_dir = self.root / "OG1/assemblies/genome/busco"
@@ -372,3 +377,13 @@ class CoverageSummaryTests(unittest.TestCase):
         self.assertIn("no_kmer_peak", record["genome_size_flags"])
         self.assertAlmostEqual(record["kmercov"], 39.1)
         self.assertAlmostEqual(record["lambda_depth"], 2.5)
+
+    def test_identity_falls_back_to_the_input_file(self):
+        # Refits published before the name prefix was fixed say "name prefix = reseed";
+        # the input file line still names the sample.
+        text = genomescope_summary().replace("name prefix = OG1.ilmn.250101",
+                                             "input file = OG1.ilmn.250101.meryl.hist\nname prefix = reseed")
+        with tempfile.TemporaryDirectory() as tmp:
+            record = stats.parse_genomescope(write(Path(tmp) / "summary.txt", text))
+        self.assertEqual((record["og_id"], record["seq_date"]), ("OG1", "250101"))
+

@@ -241,17 +241,19 @@ def parse_genomescope(path: PathLike) -> dict[str, Any]:
     schema does not inherit GenomeScope's mislabel.
     """
     lines = Path(path).read_text(encoding="utf-8").splitlines()
-    source = None
+    # The name prefix first, then the input file, taking the first that names a sample.
+    # GENOMESCOPE_RESEED used to write "name prefix = reseed", which names nothing; its
+    # input file line still does (OG2949.ilmn.260909.meryl.hist).
+    og_id = seq_date = None
     for wanted in ("name prefix", "input file"):
         for line in lines:
             if line.lower().startswith(wanted):
                 match = re.search(r"=\s*(.+)$", line)
                 if match:
-                    source = match.group(1).strip()
+                    og_id, seq_date = ids_from_dot_name(match.group(1).strip())
                     break
-        if source:
+        if og_id and seq_date:
             break
-    og_id, seq_date = ids_from_dot_name(source or "")
 
     # label prefix -> (column for the first value, column for the second)
     targets = {

@@ -347,6 +347,9 @@ workflow OCEANGENOMES_DRAFTGENOMES {
         // RECHECK_GENOME_SIZE's output supersedes the provisional summary from assembly:
         // it is the one carrying the assembly and read-depth cross-checks.
         ch_coverage_summary_final = GENOME_QC.out.coverage_summary
+        // The GenomeScope fit GENOMESCOPE_RESEED chose: the refit where it won. The
+        // coverage summary above describes that same fit, so the row is consistent.
+        ch_genomescope_summary_upload = GENOME_QC.out.genomescope_summary
     } else if (params.precomputed_genome_qc_results) {
         // Use precomputed results if analysis is skipped
         /* For the genome QC there is going to be multiple outputs of the results from the different modules run within this subworkflow.
@@ -407,6 +410,25 @@ workflow OCEANGENOMES_DRAFTGENOMES {
         // run left. It still carries its own assembly_cross_check field saying so.
         ch_coverage_summary_final = ch_coverage_summary
 
+        // A push-only run uploads the published final summary, which describes the refit
+        // where one won, and the refit is published only when it won. Prefer it, so the
+        // size and the verdict in the row are about the same fit. With assembly re-run in
+        // this launch any refit on disk predates the new GenomeScope fit, so the fresh
+        // original is the one to upload.
+        if (params.skip_genome_assembly) {
+            ch_genomescope_summary_upload = warnIfEmpty(Channel.fromPath(params.precomputed_genomescope_summary, checkIfExists: false), params.precomputed_genomescope_summary)
+                .map { file -> tuple(file.baseName.split('\\_')[0], file) }
+                .groupTuple()
+                .map { sample_id, files ->
+                    tuple(sample_id, files.find { it.name.contains('_reseeded_') } ?: files.find { !it.name.contains('_reseeded_') })
+                }
+            ch_genomescope_summary_upload = ch_meta_by_prefix
+                .join(ch_genomescope_summary_upload)
+                .map { _key, meta, file -> tuple(meta, file) }
+        } else {
+            ch_genomescope_summary_upload = ch_genomescope_summary
+        }
+
         ch_precomputed_gfastats_results = warnIfEmpty(Channel.fromPath(params.precomputed_gfastats_results_results, checkIfExists: false), params.precomputed_gfastats_results_results)
             .map { file ->
                 def sample_id = file.baseName.split('\\.')[0..2].join('.')
@@ -420,6 +442,7 @@ workflow OCEANGENOMES_DRAFTGENOMES {
         ch_merqury_results = Channel.empty()
         ch_gfastats_results = Channel.empty()
         ch_coverage_summary_final = Channel.empty()
+        ch_genomescope_summary_upload = ch_genomescope_summary
     }
 
 
@@ -430,7 +453,7 @@ workflow OCEANGENOMES_DRAFTGENOMES {
     if (!params.skip_upload_results) {
         UPLOAD_RESULTS (
             ch_fastp_json,
-            ch_genomescope_summary,
+            ch_genomescope_summary_upload,
             ch_coverage_summary_final,
             ch_filter_report,
             ch_contigs_under_500bp,

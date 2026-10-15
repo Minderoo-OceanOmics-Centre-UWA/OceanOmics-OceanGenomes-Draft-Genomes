@@ -255,11 +255,27 @@ Generalised from "fish + corals" to all invertebrates.
 
 ### `Fixed`
 
+- **A GenomeScope refit that wins is now the fit the pipeline uses.** GENOMESCOPE_RESEED
+  decided and published the refit, and then every step after it carried on with the
+  original: NOVA_260909_LA's OG2628, OG2949 and OG3057 reached the database at 232, 1,113
+  and 1,858 Mb against refits of 322, 300 and 992 Mb. The module now emits a `chosen` fit
+  (the refit where it won, the original otherwise), and PUSH_ASSEMBLY_RESULTS, GFASTATS (the
+  expected size behind NG50/LG50/auNG) and RECHECK_GENOME_SIZE use it. Where the refit won,
+  the recheck re-runs the k-mer gate on it and recomputes the theoretical coverage before
+  the assembly and read-depth checks, so the verdict describes the uploaded fit: OG3057 had
+  stayed flagged `fitted_coverage_disagrees_with_read_depth` for the original's kmercov of
+  10.2, which the refit had replaced with 16.7 against a measured 16.6. Winning the reseed
+  does not exempt a refit from the gate. The coverage summary records `genomescope_fit`. A
+  push-only run (assembly and QC skipped) uploads the published refit where one exists.
+  The refit's GenomeScope name prefix is now the sample prefix rather than `reseed`, which
+  named no sample, and `parse_genomescope` falls back to the input file line for refits
+  published before that.
+
 - **`backfill_draft_genome_stats.py` no longer refuses samples over files that are not
   theirs to choose.** The GenomeScope glob matched GENOMESCOPE_RESEED's
   `*_genomescope2_reseeded_summary.txt`, which parses to no OG ID, so OG2628, OG2949 and
-  OG3057 failed as malformed; it is now excluded, matching the pipeline, which uploads the
-  original fit. A sample re-scored against a new BUSCO lineage keeps the old lineage's
+  OG3057 failed as malformed; it is now preferred where present, since it is published only
+  when the refit won and the pipeline now uploads that fit (below). A sample re-scored against a new BUSCO lineage keeps the old lineage's
   files, which made 31 of NOVA_260909_LA's 80 ambiguous; the manifest takes an optional
   `busco_lineage` column (dataset name or four-letter tag) that picks one, with no fallback
   to another lineage when the named one is absent. Validation over NOVA_260909_LA goes

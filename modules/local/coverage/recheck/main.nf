@@ -25,7 +25,11 @@ process RECHECK_GENOME_SIZE {
     // nothing and every task failed with MissingFileException under errorStrategy ignore
     // (silently -- exit 0, empty stderr), while the write itself resolved through the
     // input symlink and overwrote CALCULATE_SEQUENCING_COVERAGE's own work-dir copy.
-    tuple val(meta), path(coverage_json, stageAs: 'provisional/*'), path(seqkit_stats), path(kmer_depth_json), path(busco_summary)
+    //
+    // The reseed decision and the fit it chose (staged under chosen/, since the original
+    // summary can carry the same name) are what let the verdict describe the fit that is
+    // uploaded when the refit won; the histogram is for the k-mer gate re-run on it.
+    tuple val(meta), path(coverage_json, stageAs: 'provisional/*'), path(seqkit_stats), path(kmer_depth_json), path(busco_summary), path(reseed_decision), path(chosen_summary, stageAs: 'chosen/*'), path(chosen_model, stageAs: 'chosen/*'), path(histogram)
 
     output:
     tuple val(meta), path("*_coverage_summary.json"), emit: coverage_json
@@ -56,6 +60,16 @@ merged = json.loads(subprocess.check_output([
     "--seqkit-stats", "${seqkit_stats}",
     "--kmer-depth-json", "${kmer_depth_json}",
     "--busco-summary", "${busco_summary}",
+    "--reseed-decision", "${reseed_decision}",
+    "--chosen-summary", "${chosen_summary}",
+    "--chosen-model", "${chosen_model}",
+    "--histogram", "${histogram}",
+    # The same k-mer gate CALCULATE_SEQUENCING_COVERAGE applies, for a refit that won.
+    "--min-model-fit", "${params.genomescope_min_model_fit}",
+    "--max-bias", "${params.genomescope_max_model_bias}",
+    "--min-peak-kmercov-ratio", "${params.genomescope_min_peak_kmercov_ratio}",
+    "--max-peak-kmercov-ratio", "${params.genomescope_max_peak_kmercov_ratio}",
+    "--peak-search-max", "${params.genomescope_peak_search_max}",
     "--min-busco-complete", "${params.genomescope_min_busco_complete}",
     "--min-assembly-ratio", "${params.genomescope_min_assembly_ratio}",
     "--max-assembly-ratio", "${params.genomescope_max_assembly_ratio}",
@@ -87,6 +101,7 @@ if merged.get("partition_note"):
 basis = merged.get("assembly_ratio_basis") or "total"
 denominator = merged.get("assembly_ratio_denominator") or 0
 rows = [
+    ("GenomeScope fit", merged.get("genomescope_fit") or "original"),
     ("Estimated genome size", f"{size:,} bp" if size else "NA"),
     ("Decontaminated assembly size", f"{assembly_size:,} bp" if assembly_size else "NA"),
     # How much of this assembly is the animal. A lower bound: a symbiont sitting at the

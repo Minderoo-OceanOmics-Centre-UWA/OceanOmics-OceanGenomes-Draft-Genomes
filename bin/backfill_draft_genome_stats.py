@@ -44,13 +44,12 @@ COMPONENTS: dict[str, tuple[str, Callable[[Path], dict[str, Any]]]] = {
     "gfastats": ("assemblies/genome/gfastats/*assembly_summary*", parse_gfastats),
 }
 
-# Files a component's glob matches that are never that component. GENOMESCOPE_RESEED
-# publishes its refit beside the original as *_genomescope2_reseeded_summary.txt, which
-# "*summary.txt" also matches. The pipeline uploads the original fit, so that is the one to
-# backfill; the reseeded name does not parse to an OG ID either, so left in it failed
-# OG2628, OG2949 and OG3057 as malformed.
-COMPONENT_EXCLUDES: dict[str, tuple[str, ...]] = {
-    "genomescope": ("_reseeded_",),
+# Where a component has two files and one is preferred whenever it is present. GENOMESCOPE_RESEED
+# publishes its refit beside the original as *_genomescope2_reseeded_summary.txt, and only
+# when the refit won, so its presence is the decision. The pipeline uploads the fit it
+# chose, so the backfill takes the refit wherever one exists.
+COMPONENT_PREFERRED: dict[str, str] = {
+    "genomescope": "_reseeded_",
 }
 
 # Components a sample may legitimately lack. The coverage summary post-dates most of the
@@ -149,9 +148,10 @@ def read_manifest(path: Path) -> list[tuple[str, str, Optional[str]]]:
 def _select_component(sample: Sample, root: Path, component: str,
                       busco_lineage: Optional[str] = None) -> None:
     pattern, parser = COMPONENTS[component]
-    excludes = COMPONENT_EXCLUDES.get(component, ())
-    candidates = [path for path in sorted(root.glob(pattern))
-                  if not any(marker in path.name for marker in excludes)]
+    candidates = sorted(root.glob(pattern))
+    preferred = COMPONENT_PREFERRED.get(component)
+    if preferred and any(preferred in path.name for path in candidates):
+        candidates = [path for path in candidates if preferred in path.name]
     # BUSCO scores are not comparable across lineages, and a sample re-scored against a new
     # lineage keeps the old lineage's files beside the new ones (31 of NOVA_260909_LA's 80).
     # With a lineage named, take only that one, and never fall back to a neighbour.

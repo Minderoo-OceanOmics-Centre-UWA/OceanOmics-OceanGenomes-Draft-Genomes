@@ -308,6 +308,56 @@ def busco_complete_from_summary(path):
         return None
 
 
+# Same grades as CALCULATE_SEQUENCING_COVERAGE, for a coverage recomputed from a refit.
+COVERAGE_GRADES = (
+    (50, "EXCELLENT", "Suitable for high-quality genome assembly and variant calling."),
+    (30, "GOOD", "Suitable for genome assembly and most downstream analyses."),
+    (20, "ADEQUATE", "Suitable for basic genome assembly."),
+    (10, "LOW", "Draft assembly may be possible, but additional sequencing may help."),
+    (0, "INSUFFICIENT", "Additional sequencing is strongly recommended."),
+)
+
+
+def apply_reseeded_fit(coverage, summary, model, hist=None, thresholds=None):
+    """Swap the provisional summary over to the GenomeScope refit that won.
+
+    GENOMESCOPE_RESEED keeps a refit only when it beats the original on its own terms, but
+    the provisional summary was written from the original before the refit existed. Left
+    alone, the uploaded verdict described the rejected fit: OG3057 stayed flagged
+    fitted_coverage_disagrees_with_read_depth for a kmercov of 10.2 that the refit had
+    replaced with 16.7, against a measured 16.6.
+
+    The refit goes through the same k-mer gate as any fit, so winning the reseed does not
+    by itself make a sample reliable. Its flags replace the provisional ones, which are all
+    k-mer-stage flags; recheck_against_assembly() then adds the assembly checks as usual."""
+    flags, details = evaluate(summary, model, hist, None, thresholds)
+    merged = dict(coverage)
+    size = details["estimated_genome_size"] or 0
+    size = size if size > 0 else 0
+    for key in ("genome_size_min", "genome_size_max", "model_fit_allkmers", "model_fit_full",
+                "heterozygosity_min", "heterozygosity_max", "kmercov", "kmer_peak_coverage"):
+        merged[key] = details[key]
+    merged["estimated_genome_size"] = size
+    # Deprecated aliases, kept in step with the fields they alias.
+    merged["model_fit_min"], merged["model_fit_max"] = details["model_fit_allkmers"], details["model_fit_full"]
+    merged["fitted_kmer_coverage"] = details["kmercov"]
+
+    bases_after = coverage.get("total_bases_after_filtering") or 0
+    retention = coverage.get("data_retention_percent") or 0
+    merged["theoretical_coverage"] = bases_after / size if size else 0
+    merged["coverage_before_filtering"] = (
+        bases_after / (retention / 100) / size if size and retention else 0)
+    for floor, status, recommendation in COVERAGE_GRADES:
+        if merged["theoretical_coverage"] >= floor:
+            merged["coverage_status"], merged["coverage_recommendation"] = status, recommendation
+            break
+
+    merged["genome_size_flags"] = "; ".join(flags)
+    merged["genome_size_reliable"] = not flags
+    merged["genomescope_fit"] = "reseeded"
+    return merged
+
+
 def recheck_against_assembly(coverage, assembly_size, thresholds=None, kmer_depth=None,
                              busco_complete=None):
     """Add the checks that need the finished assembly to an existing coverage summary.
@@ -476,6 +526,11 @@ def render_text_report(summary):
     lines.append("")
 
     lines.append("GENOME SIZE ESTIMATION (GenomeScope):")
+    if s.get("genomescope_fit") == "reseeded":
+        lines.append("  Fit: reseeded (refit seeded with the measured k-mer coverage, kept over "
+                     "the original)")
+    elif s.get("genomescope_fit") == "original":
+        lines.append("  Fit: original")
     lines.append(f"  Estimated genome size: {num(size) + ' bp' if size else 'none'}")
     if s.get("genome_size_min") and s.get("genome_size_max"):
         lines.append(f"  Genome size range: {s['genome_size_min']:,} - {s['genome_size_max']:,} bp")
@@ -588,6 +643,12 @@ def main(argv=None):
     parser.add_argument("--seqkit-stats", help="with --recheck-assembly: seqkit stats for the assembly")
     parser.add_argument("--kmer-depth-json", help="with --recheck-assembly: MEASURE_KMER_COVERAGE output")
     parser.add_argument("--busco-summary", help="with --recheck-assembly: BUSCO short_summary JSON")
+    parser.add_argument("--reseed-decision",
+                        help="with --recheck-assembly: GENOMESCOPE_RESEED's decision JSON")
+    parser.add_argument("--chosen-summary",
+                        help="with --recheck-assembly: the GenomeScope summary the reseed chose")
+    parser.add_argument("--chosen-model",
+                        help="with --recheck-assembly: the GenomeScope model the reseed chose")
     parser.add_argument("--render-report", metavar="COVERAGE_JSON",
                         help="print the *_sequencing_coverage.txt for a coverage summary")
     for name, value in DEFAULTS.items():
@@ -605,6 +666,20 @@ def main(argv=None):
             parser.error("--recheck-assembly needs --coverage-json and --seqkit-stats")
         with open(args.coverage_json) as handle:
             coverage = json.load(handle)
+        winner = None
+        if args.reseed_decision:
+            with open(args.reseed_decision) as handle:
+                winner = json.load(handle).get("winner")
+        if winner == "reseeded":
+            if not args.chosen_summary:
+                parser.error("the reseed decision chose the refit but no --chosen-summary was given")
+            coverage = apply_reseeded_fit(
+                coverage, parse_summary(args.chosen_summary),
+                parse_model(args.chosen_model) if args.chosen_model else {},
+                read_histogram(args.histogram, args.peak_search_max) if args.histogram else None,
+                thresholds)
+        elif winner:
+            coverage = dict(coverage, genomescope_fit="original")
         kmer_depth = None
         if args.kmer_depth_json:
             with open(args.kmer_depth_json) as handle:

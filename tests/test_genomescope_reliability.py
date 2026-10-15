@@ -628,3 +628,86 @@ class TextReportTests(unittest.TestCase):
         with contextlib.redirect_stdout(buffer):
             gate.main(["--render-report", path])
         self.assertEqual(buffer.getvalue(), gate.render_text_report(self.provisional()))
+
+
+class ReseededFitTests(unittest.TestCase):
+    """Where the refit won, the verdict has to describe the refit, not the fit it replaced."""
+
+    def provisional(self):
+        # OG3057's original fit: 1,858 Mb at kmercov 10.2, flagged at the k-mer stage.
+        return {"sample_id": "OG3057", "estimated_genome_size": 1_858_105_218,
+                "genome_size_min": 1_858_105_218, "genome_size_max": 1_858_105_218,
+                "kmercov": 10.2, "genome_size_flags": "degenerate_model_fit; implausible_model_bias",
+                "genome_size_reliable": False, "coverage_status": "UNRELIABLE_GENOME_SIZE_ESTIMATE",
+                "total_bases_after_filtering": 30_000_000_000, "data_retention_percent": 80.0,
+                "theoretical_coverage": 16.1, "assembly_cross_check": "pending"}
+
+    def refit(self):
+        # The refit that won: 992 Mb at kmercov 16.7, against a measured 16.6.
+        return (gate.parse_summary(write(summary(haploid="991,669,221|991,669,221",
+                                                 fit=("60.0", "97.6")))),
+                {"kmercov": 16.7, "bias": 1.2}, peaked_histogram(kmercov=17))
+
+    def test_refit_replaces_the_fit_fields(self):
+        merged = gate.apply_reseeded_fit(self.provisional(), *self.refit())
+        self.assertEqual(merged["genomescope_fit"], "reseeded")
+        self.assertEqual(merged["estimated_genome_size"], 991_669_221)
+        self.assertEqual(merged["kmercov"], 16.7)
+        self.assertEqual(merged["fitted_kmer_coverage"], 16.7)
+        self.assertEqual(merged["model_fit_full"], 97.6)
+        self.assertEqual(merged["genome_size_flags"], "")
+        self.assertAlmostEqual(merged["theoretical_coverage"], 30_000_000_000 / 991_669_221)
+        self.assertAlmostEqual(merged["coverage_before_filtering"], 37_500_000_000 / 991_669_221)
+        self.assertEqual(merged["coverage_status"], "GOOD")
+
+    def test_read_depth_check_is_against_the_refit(self):
+        kmer_depth = {"lambda_depth": 16.6}
+        original = gate.recheck_against_assembly(self.provisional(), 1_361_000_000, None, kmer_depth)
+        self.assertIn("fitted_coverage_disagrees_with_read_depth", original["genome_size_flags"])
+        refit = gate.recheck_against_assembly(
+            gate.apply_reseeded_fit(self.provisional(), *self.refit()), 1_361_000_000, None, kmer_depth)
+        self.assertNotIn("fitted_coverage_disagrees_with_read_depth", refit["genome_size_flags"])
+        self.assertTrue(refit["genome_size_reliable"])
+        self.assertEqual(refit["genomescope_fit"], "reseeded")
+
+    def test_winning_the_reseed_does_not_bypass_the_gate(self):
+        parsed = gate.parse_summary(write(summary(haploid="991,669,221|991,669,221",
+                                                  het=("0", "4.1"))))
+        merged = gate.apply_reseeded_fit(self.provisional(), parsed, {"kmercov": 16.7, "bias": 9.0},
+                                         peaked_histogram(kmercov=17))
+        self.assertFalse(merged["genome_size_reliable"])
+        self.assertIn("degenerate_model_fit", merged["genome_size_flags"])
+        self.assertIn("implausible_model_bias", merged["genome_size_flags"])
+
+    def run_cli(self, winner):
+        import contextlib
+        import io
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "cov.json").write_text(json.dumps(self.provisional()))
+            (root / "seqkit.tsv").write_text(
+                "file\tformat\ttype\tnum_seqs\tsum_len\nx.fa\tFASTA\tDNA\t838185\t1361000000\n")
+            (root / "decision.json").write_text(json.dumps({"winner": winner}))
+            (root / "chosen_summary.txt").write_text(summary(haploid="991,669,221|991,669,221",
+                                                             fit=("60.0", "97.6")))
+            (root / "chosen_model.txt").write_text("kmercov 1.670e+01 1.0 1.0 0.1\nbias 1.2 0.1 1 0.1\n")
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                gate.main(["--recheck-assembly", "--coverage-json", str(root / "cov.json"),
+                           "--seqkit-stats", str(root / "seqkit.tsv"),
+                           "--reseed-decision", str(root / "decision.json"),
+                           "--chosen-summary", str(root / "chosen_summary.txt"),
+                           "--chosen-model", str(root / "chosen_model.txt")])
+        return json.loads(buffer.getvalue())
+
+    def test_cli_applies_a_winning_refit(self):
+        merged = self.run_cli("reseeded")
+        self.assertEqual(merged["genomescope_fit"], "reseeded")
+        self.assertEqual(merged["estimated_genome_size"], 991_669_221)
+        self.assertIn("Fit: reseeded", gate.render_text_report(merged))
+
+    def test_cli_leaves_the_original_alone(self):
+        merged = self.run_cli("original")
+        self.assertEqual(merged["genomescope_fit"], "original")
+        self.assertEqual(merged["estimated_genome_size"], 1_858_105_218)
+        self.assertEqual(merged["kmercov"], 10.2)
