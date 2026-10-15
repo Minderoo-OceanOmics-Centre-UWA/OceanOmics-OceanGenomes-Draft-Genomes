@@ -139,6 +139,52 @@ class ParserAndDiscoveryTests(unittest.TestCase):
         sample = backfill.discover_sample(self.root, "OG1", "250101")
         self.assertFalse(sample.valid)
 
+    def test_reseeded_genomescope_summary_is_ignored(self):
+        # GENOMESCOPE_RESEED publishes its refit beside the original; the glob matched it
+        # and its name parses to no OG ID, which failed OG2628, OG2949 and OG3057.
+        original = next((self.root / "OG1/kmers").glob("*_genomescope/*_summary.txt"))
+        write(original.with_name("OG1.ilmn.250101_genomescope2_reseeded_summary.txt"),
+              original.read_text(encoding="utf-8").replace("1000 bp", "300 bp"))
+        sample = backfill.discover_sample(self.root, "OG1", "250101")
+        self.assertTrue(sample.valid, sample.errors)
+        self.assertEqual(sample.paths["genomescope"], original)
+        self.assertEqual(sample.records["assembly"]["genomesize"], 1000)
+
+    def two_lineages(self):
+        busco_dir = self.root / "OG1/assemblies/genome/busco"
+        source = next(busco_dir.glob("*.json"))
+        old = json.loads(source.read_text(encoding="utf-8"))
+        new = json.loads(source.read_text(encoding="utf-8"))
+        new["results"]["Complete percentage"] = "26.0"
+        write(busco_dir / "OG1.ilmn.250101.v129mh.busco.meta.short_summary.json", json.dumps(old))
+        write(busco_dir / "OG1.ilmn.250101.v129mh.busco.anth.short_summary.json", json.dumps(new))
+        source.unlink()
+
+    def test_two_busco_lineages_without_a_choice_are_rejected(self):
+        self.two_lineages()
+        sample = backfill.discover_sample(self.root, "OG1", "250101")
+        self.assertFalse(sample.valid)
+        self.assertTrue(any("busco: ambiguous" in e and "busco_lineage" in e for e in sample.errors))
+
+    def test_named_busco_lineage_is_taken(self):
+        self.two_lineages()
+        sample = backfill.discover_sample(self.root, "OG1", "250101", busco_lineage="anth")
+        self.assertTrue(sample.valid, sample.errors)
+        self.assertEqual(sample.records["busco"]["complete"], 26.0)
+
+    def test_missing_named_lineage_does_not_fall_back(self):
+        # BUSCO scores are not comparable across lineages, so a neighbour will not do.
+        self.two_lineages()
+        sample = backfill.discover_sample(self.root, "OG1", "250101", busco_lineage="acti")
+        self.assertFalse(sample.valid)
+        self.assertTrue(any("no 'acti' lineage" in error for error in sample.errors))
+
+    def test_manifest_lineage_accepts_the_dataset_name(self):
+        manifest = write(self.root / "manifest.tsv",
+                         "og_id\tseq_date\tbusco_lineage\nOG1\t250101\tanthozoa_odb12\nOG2\t250101\t\n")
+        self.assertEqual(backfill.read_manifest(manifest),
+                         [("OG1", "250101", "anth"), ("OG2", "250101", None)])
+
 
 class FakeCursor:
     def __init__(self):

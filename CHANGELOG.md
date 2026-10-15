@@ -255,6 +255,16 @@ Generalised from "fish + corals" to all invertebrates.
 
 ### `Fixed`
 
+- **`backfill_draft_genome_stats.py` no longer refuses samples over files that are not
+  theirs to choose.** The GenomeScope glob matched GENOMESCOPE_RESEED's
+  `*_genomescope2_reseeded_summary.txt`, which parses to no OG ID, so OG2628, OG2949 and
+  OG3057 failed as malformed; it is now excluded, matching the pipeline, which uploads the
+  original fit. A sample re-scored against a new BUSCO lineage keeps the old lineage's
+  files, which made 31 of NOVA_260909_LA's 80 ambiguous; the manifest takes an optional
+  `busco_lineage` column (dataset name or four-letter tag) that picks one, with no fallback
+  to another lineage when the named one is absent. Validation over NOVA_260909_LA goes
+  from 47 to 80 of 80.
+
 - **Skip-assembly runs recompute the provisional coverage summary.** With
   `--skip_genome_assembly` and QC enabled, `CALCULATE_SEQUENCING_COVERAGE` now runs on the
   published fastp JSON and GenomeScope summary, model and histogram instead of reading back
