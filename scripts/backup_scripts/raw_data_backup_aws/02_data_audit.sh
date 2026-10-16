@@ -7,7 +7,7 @@
 # RUN=NOVA_260108_AD
 # download=/scratch/pawsey0964/tpeirce/NOVA_260108_AD/basespace/NOVA_260108_AD
 
-S3=s3://ocom-oceangenomes/illumina-raw
+S3=s3://ocom.oceangenomes/illumina-raw
 ## 1. Perform check on local machine 
 
 # Generate txt file with list of OGID into a txt file called OGLIST_RAW.txt
