@@ -215,13 +215,75 @@ class TransactionAndVerificationTests(unittest.TestCase):
         self.assertEqual(connection.commits, 0)
         self.assertGreaterEqual(connection.rollbacks, 2)
 
+    def _cursor(self, fetches=None):
+        cursor = mock.MagicMock()
+        cursor.fetchone.side_effect = fetches or (lambda: (42,))
+        return cursor
+
+    def _statements(self, cursor):
+        return [call.args[0] for call in cursor.execute.call_args_list]
+
     def test_idempotent_upserts_use_conflict_update(self):
-        cursor = mock.Mock()
+        cursor = self._cursor()
         record = self.sample().records["assembly"]
         stats.upsert_record(cursor, "assembly", record)
         stats.upsert_record(cursor, "assembly", record)
-        self.assertEqual(cursor.execute.call_count, 2)
-        self.assertIn("ON CONFLICT (og_id, seq_date) DO UPDATE", cursor.execute.call_args.args[0])
+        statements = self._statements(cursor)
+        self.assertEqual(len(statements), 4)  # draft_genome + draft_genomescope, twice
+        self.assertIn("ON CONFLICT (og_id, seq_date) DO UPDATE", statements[0])
+        self.assertTrue(statements[1].startswith("INSERT INTO draft_genomescope"))
+        self.assertIn("ON CONFLICT (draft_id) DO UPDATE", statements[1])
+        self.assertEqual(statements[2:], statements[:2])
+
+    def test_each_family_writes_only_its_own_tables(self):
+        sample = self.sample()
+        expected = {"assembly": {"draft_genomescope"}, "busco": {"draft_busco"},
+                    "merqury": {"draft_merqury"}, "gfastats": {"draft_gfastats"},
+                    "decontamination": {"draft_tiara", "draft_contamination"}}
+        for family, tables in expected.items():
+            with self.subTest(family=family):
+                cursor = self._cursor()
+                stats.upsert_record(cursor, family, sample.records[family])
+                written = {sql.split()[2] for sql in self._statements(cursor)[1:]}
+                self.assertEqual(written, tables)
+
+    def test_contigs_under_500bp_are_stored_under_their_real_name(self):
+        cursor = self._cursor()
+        record = {**self.sample().records["decontamination"], "num_contigs": 7}
+        stats.upsert_record(cursor, "decontamination", record)
+        contamination = [call for call in cursor.execute.call_args_list
+                         if call.args[0].startswith("INSERT INTO draft_contamination")]
+        self.assertEqual(len(contamination), 1)
+        self.assertIn("num_contigs_lt_500bp", contamination[0].args[0])
+        self.assertEqual(contamination[0].args[1]["num_contigs_lt_500bp"], 7)
+
+    def test_an_all_empty_process_writes_no_row(self):
+        cursor = self._cursor()
+        record = {"og_id": "OG1", "seq_date": "250101",
+                  **{column: None for column in stats.FAMILY_COLUMNS["gfastats"]}}
+        stats.upsert_record(cursor, "gfastats", record)
+        self.assertEqual(len(self._statements(cursor)), 1)  # only draft_genome
+
+    def test_fastp_links_the_illumina_run(self):
+        cursor = self._cursor([(42,), (1,)])
+        stats.upsert_record(cursor, "fastp", self.sample().records["fastp"])
+        statements = self._statements(cursor)
+        self.assertTrue(statements[0].startswith("INSERT INTO draft_genome (og_id, seq_date, mach, initial)"))
+        link = [call for call in cursor.execute.call_args_list
+                if call.args[0].startswith("INSERT INTO draft_genome_run")]
+        self.assertEqual(len(link), 1)
+        self.assertEqual(link[0].args[1]["instrument"], "NovaSeq")
+
+    def test_a_draft_built_only_from_hic_is_rejected(self):
+        cursor = self._cursor([(42,), (0,), ("Hi-C hic",)])
+        with self.assertRaisesRegex(ValueError, "must come from an Illumina DNA library"):
+            stats.upsert_record(cursor, "fastp", self.sample().records["fastp"])
+
+    def test_a_draft_ahead_of_the_workbook_only_warns(self):
+        cursor = self._cursor([(42,), (0,), (None,)])
+        with mock.patch("builtins.print") as printed:
+            stats.upsert_record(cursor, "fastp", self.sample().records["fastp"])
+        self.assertIn("no sequencing row yet", printed.call_args.args[0])
 
     def test_verification_detects_integer_float_text_and_null_changes(self):
         sample = self.sample()

@@ -493,16 +493,119 @@ def assert_identity(record: dict[str, Any], og_id: str, seq_date: str, family: s
         raise ValueError(f"{family}: parsed {actual[0]}/{actual[1]}, expected {og_id}/{seq_date}")
 
 
+# Phase R (docs/assembly_relations_plan.md §4): the draft is one row in draft_genome and each
+# process writes only its own table, keyed on draft_id. FAMILY_COLUMNS above keeps the legacy
+# column names, which is what parsers, verification and the draft_genomes compatibility view
+# use; this map says where each family's columns are stored. Table names are unqualified on
+# purpose: before the R.6 merge a test session reaches the v3 tables with
+# search_path = v3, public, and after it they are in public.
+#
+# Columns not listed here live on draft_genome itself (mach, initial). A legacy name stored
+# under a different name maps to (table, stored_name).
+FAMILY_TABLES: dict[str, dict[str, Union[str, tuple[str, str]]]] = {
+    "fastp": {column: "draft_fastp" for column in FAMILY_COLUMNS["fastp"]
+              if column not in ("mach", "initial")},
+    "assembly": {column: "draft_genomescope" for column in FAMILY_COLUMNS["assembly"]},
+    "decontamination": {
+        **{column: "draft_tiara" for column in (
+            "num_contigs_mitochondrion", "num_contigs_plastid", "num_contigs_prokarya",
+            "bp_mitochondrion", "bp_plastid", "bp_prokarya")},
+        **{column: "draft_contamination" for column in (
+            "num_contigs_exclude", "bp_exclude", "num_contigs_trim", "bp_trim",
+            "num_contigs_review", "bp_review")},
+        # The count of contigs under 500 bp (*contig_count_500bp.txt), not a total.
+        "num_contigs": ("draft_contamination", "num_contigs_lt_500bp"),
+    },
+    "busco": {column: "draft_busco" for column in FAMILY_COLUMNS["busco"]},
+    "merqury": {column: "draft_merqury" for column in FAMILY_COLUMNS["merqury"]},
+    "gfastats": {column: "draft_gfastats" for column in FAMILY_COLUMNS["gfastats"]},
+}
+
+# mach -> sequencing.instrument, for the run link. iSEQ QC runs are never a draft's source.
+MACH_INSTRUMENT = {"NOVA": "NovaSeq", "NEXT": "NextSeq"}
+
+
+def _table_columns(family: str, record: dict[str, Any]) -> dict[str, list[tuple[str, str]]]:
+    """{table: [(legacy_name, stored_name), ...]} for the family columns this record carries."""
+    tables: dict[str, list[tuple[str, str]]] = {}
+    for column, target in FAMILY_TABLES[family].items():
+        if column not in record:
+            continue
+        table, stored = target if isinstance(target, tuple) else (target, column)
+        tables.setdefault(table, []).append((column, stored))
+    return tables
+
+
+def link_illumina_runs(cursor, draft_id: int, record: dict[str, Any]) -> int:
+    """Link a draft to the Illumina sequencing rows it was built from; return how many.
+
+    By (og_id, seq_date), Illumina DNA libraries only (RNA libraries share the technology), with
+    the instrument matching mach, as the Phase R backfill does (migration 055). No
+    match while the workbook lags is a warning. A match that exists only on non-Illumina
+    sequencing (the 15 Hi-C "drafts" migration 049 removed) is an error: a draft genome is an
+    Illumina assembly.
+    """
+    instrument = MACH_INSTRUMENT.get(str(record.get("mach") or ""))
+    cursor.execute(
+        "INSERT INTO draft_genome_run (draft_id, sequencing_id) "
+        "SELECT %(draft_id)s, s.sequencing_id FROM v_sequencing_browse s "
+        "WHERE s.og_id = %(og_id)s AND s.seq_date = %(seq_date)s "
+        "AND s.technology = 'Illumina' AND s.library_type = 'illumina' "
+        "AND s.instrument = %(instrument)s "
+        "ON CONFLICT DO NOTHING",
+        {"draft_id": draft_id, "og_id": record["og_id"], "seq_date": record["seq_date"],
+         "instrument": instrument})
+    cursor.execute("SELECT count(*) FROM draft_genome_run WHERE draft_id = %s", (draft_id,))
+    linked = cursor.fetchone()[0]
+    if not linked:
+        cursor.execute(
+            "SELECT string_agg(DISTINCT coalesce(technology, '?') || ' ' || coalesce(library_type, '?'), "
+            "', ') FROM v_sequencing_browse "
+            "WHERE og_id = %s AND seq_date = %s", (record["og_id"], record["seq_date"]))
+        others = cursor.fetchone()[0]
+        if others:
+            raise ValueError(f"{record['og_id']}/{record['seq_date']}: only {others} sequencing "
+                             "matches this draft; a draft genome must come from an Illumina DNA "
+                             "library on the run its mach names")
+        print(f"WARNING: {record['og_id']}/{record['seq_date']}: no sequencing row yet; the run "
+              "link will be added by a later upload once the workbook has it")
+    return linked
+
+
 def upsert_record(cursor, family: str, record: dict[str, Any]) -> None:
     columns = tuple(column for column in FAMILY_COLUMNS[family] if column in record)
     if not columns:
         raise ValueError(f"{family}: record contains no recognized metric columns")
-    names = ("og_id", "seq_date", *columns)
-    assignments = ", ".join(f"{name} = EXCLUDED.{name}" for name in columns)
-    sql = (f"INSERT INTO draft_genomes ({', '.join(names)}) VALUES "
-           f"({', '.join('%(' + name + ')s' for name in names)}) "
-           f"ON CONFLICT (og_id, seq_date) DO UPDATE SET {assignments}")
-    cursor.execute(sql, {name: record.get(name) for name in names})
+    identity = {"og_id": record.get("og_id"), "seq_date": record.get("seq_date"),
+                "mach": record.get("mach"), "initial": record.get("initial")}
+    if family == "fastp":
+        cursor.execute(
+            "INSERT INTO draft_genome (og_id, seq_date, mach, initial) "
+            "VALUES (%(og_id)s, %(seq_date)s, %(mach)s, %(initial)s) "
+            "ON CONFLICT (og_id, seq_date) DO UPDATE SET mach = EXCLUDED.mach, "
+            "initial = EXCLUDED.initial RETURNING draft_id", identity)
+    else:
+        cursor.execute(
+            "INSERT INTO draft_genome (og_id, seq_date) VALUES (%(og_id)s, %(seq_date)s) "
+            "ON CONFLICT (og_id, seq_date) DO UPDATE SET og_id = EXCLUDED.og_id "
+            "RETURNING draft_id", identity)
+    draft_id = cursor.fetchone()[0]
+
+    for table, pairs in _table_columns(family, record).items():
+        values = {stored: record.get(column) for column, stored in pairs}
+        # A process row exists only where the process produced a value (each table has a
+        # CHECK num_nonnulls(...) > 0), so an all-empty record writes nothing.
+        if all(value is None for value in values.values()):
+            continue
+        names = ("draft_id", *values)
+        assignments = ", ".join(f"{name} = EXCLUDED.{name}" for name in values)
+        sql = (f"INSERT INTO {table} ({', '.join(names)}) VALUES "
+               f"({', '.join('%(' + name + ')s' for name in names)}) "
+               f"ON CONFLICT (draft_id) DO UPDATE SET {assignments}, loaded_at = now()")
+        cursor.execute(sql, {"draft_id": draft_id, **values})
+
+    if family == "fastp":
+        link_illumina_runs(cursor, draft_id, record)
 
 
 def upload_records(config_path: PathLike,
