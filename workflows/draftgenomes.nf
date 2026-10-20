@@ -14,6 +14,7 @@ include { UPLOAD_RESULTS            } from '../subworkflows/local/upload_results
 // Modules
 include { TRIGGER_MITOGENOME        } from '../modules/local/trigger_mitogenome'
 include { CALCULATE_SEQUENCING_COVERAGE } from '../modules/local/coverage/calculations'
+include { COMPILE_JSON_TO_CSV       } from '../modules/local/coverage/compile'
 include { MULTIQC                   } from '../modules/nf-core/multiqc/main'
 include { MULTIQC_PER_SAMPLE        } from '../modules/local/multiqc_per_sample/main'
 include { TAXON                     } from '../modules/local/taxon_from_db'
@@ -445,6 +446,21 @@ workflow OCEANGENOMES_DRAFTGENOMES {
         ch_genomescope_summary_upload = ch_genomescope_summary
     }
 
+    //
+    // MODULE: Compile the per-sample coverage verdicts into the run-level CSV
+    //
+
+    // Compiled here, from the final summaries, so the table carries the assembly,
+    // read-depth and BUSCO checks. It used to run inside GENOME_ASSEMBLY on the
+    // provisional summaries, so every row read "assembly_cross_check": "pending".
+    // With QC skipped and nothing precomputed there is no final summary, and the
+    // provisional ones are the best available.
+    ch_coverage_summary_for_csv = (params.skip_genome_qc && !params.precomputed_genome_qc_results) ?
+        ch_coverage_summary : ch_coverage_summary_final
+    COMPILE_JSON_TO_CSV(
+        ch_coverage_summary_for_csv.map { _meta, json -> json }.collect()
+    )
+
 
     //
     // SUBWORKFLOW: Upload results to SQL database
@@ -474,6 +490,8 @@ workflow OCEANGENOMES_DRAFTGENOMES {
     if (!params.skip_genome_decontamination) {ch_multiqc_files = ch_multiqc_files.mix(GENOME_DECONTAMINATION.out.multiqc_files)}
     if (!params.skip_genome_qc) {ch_multiqc_files = ch_multiqc_files.mix(GENOME_QC.out.multiqc_files)}
     // if (!params.skip_upload_results) {ch_multiqc_files = ch_multiqc_files.mix(UPLOAD_RESULTS.out.multiqc_files)}
+    ch_multiqc_files = ch_multiqc_files.mix(COMPILE_JSON_TO_CSV.out.multiqc)
+    ch_multiqc_files = ch_multiqc_files.mix(COMPILE_JSON_TO_CSV.out.tool_params)
 
     if (!params.skip_fastp_fastqc) {ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(FASTP_FASTQC.out.multiqc_inputs)}
     if (!params.skip_genome_assembly) {ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(GENOME_ASSEMBLY.out.multiqc_inputs)}
@@ -491,6 +509,7 @@ workflow OCEANGENOMES_DRAFTGENOMES {
     if (!params.skip_genome_decontamination) {ch_versions = ch_versions.mix(GENOME_DECONTAMINATION.out.versions)}
     if (!params.skip_genome_qc) {ch_versions = ch_versions.mix(GENOME_QC.out.versions)}
     // if (!params.skip_upload_results) {ch_versions = ch_versions.mix(UPLOAD_RESULTS.out.versions)}
+    ch_versions = ch_versions.mix(COMPILE_JSON_TO_CSV.out.versions)
 
     // Run-level, so concurrent launches sharing one outdir would overwrite each other's
     // copy. report_subdir keeps them apart, the same way it does for multiqc and the

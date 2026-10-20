@@ -1,6 +1,6 @@
 #!/bin/bash --login
 
-#SBATCH --account=pawsey0812
+#SBATCH --account=pawsey0964
 #SBATCH --job-name=final-genome-upload
 #SBATCH --partition=long
 #SBATCH --ntasks=1
