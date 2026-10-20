@@ -9,6 +9,9 @@ Generalised from "fish + corals" to all invertebrates.
 
 ### `Added`
 
+- `--stop_after_samplesheet`: download the reads, publish the samplesheet (taxonomy still
+  checked) and stop before any assembly, so a batch can be reviewed and trimmed. Re-running
+  without the flag, with `-resume`, reuses the download and the edited samplesheet.
 - **BUSCO completeness floor in the genome size gate.** `RECHECK_GENOME_SIZE` now reads
   the BUSCO short summary and flags `assembly_lacks_host_gene_space` below
   `--genomescope_min_busco_complete` (10). OG3080 was graded EXCELLENT on an 8.9 Mb
@@ -181,6 +184,10 @@ Generalised from "fish + corals" to all invertebrates.
 
 ### `Changed`
 
+- Backup scripts point at the `ocom.oceangenomes` S3 bucket. The buckets were recreated with
+  dotted names and `ocom-oceangenomes` no longer exists.
+- `nextflow_run_template.sh` sets `MITO_PIPELINE_DIR` to the
+  `/software/projects/pawsey1348/$USER/repos/` checkout of the mitogenome pipeline.
 - **`--kmer_depth_max_ratio` lowered from 2.0 to 1.5.** 2.0 is the worst possible place for
   that boundary: fitting the homozygous peak as heterozygous or the reverse is
   GenomeScope's characteristic failure, so a threshold at exactly 2.0 sits on top of the
@@ -255,6 +262,26 @@ Generalised from "fish + corals" to all invertebrates.
 
 ### `Fixed`
 
+- **`coverage_summary/genome_coverage_summary.csv` now carries the final verdicts.**
+  `COMPILE_JSON_TO_CSV` ran inside `GENOME_ASSEMBLY` on the provisional summaries, before
+  `RECHECK_GENOME_SIZE`, so every row read `"assembly_cross_check": "pending"` and none of the
+  assembly, read-depth or BUSCO checks reached the run-level table or its MultiQC section. It
+  now runs in the main workflow on the final summaries (the provisional ones only when QC is
+  skipped with nothing precomputed), and the MultiQC table gains an Assembly Cross-check column.
+  It also now runs on `--skip_genome_assembly` launches, where it previously never ran.
+- `nextflow run main.nf --help` failed with "Unknown config attribute `params.run`" unless
+  `--run` and `--outdir` were given, because the path defaults in `nextflow.config` read them
+  before they were declared. Both are now declared at the top of the params block.
+- `check_files/01_checkfiles.sh` misaligned its report. Globs were expanded into the expected
+  list, so a pattern matching two files (`coverage/*.json`, since `_kmer_depth.json` was added)
+  added a row for that sample alone and every row below it sat against the wrong label in the
+  static `file_list.tsv`. Each pattern is now one row whatever it matches, the labels are
+  generated from the same list (`file_list.tsv` removed), and it checks kraken2, the depth
+  summary, the reseed decision, SeqKit, the MEGAHIT checkpoint status and the per-sample
+  MultiQC report the final backup uploads.
+- `01_final_genome_backup.sh` charged `pawsey0812`; it now uses `pawsey0964` like the raw backup
+  and the pipeline's jobs. The `CREATE_SAMPLESHEET` comment in `conf/modules.config` no longer
+  claims the script exits 1 on unresolved taxonomy.
 - **A GenomeScope refit that wins is now the fit the pipeline uses.** GENOMESCOPE_RESEED
   decided and published the refit, and then every step after it carried on with the
   original: NOVA_260909_LA's OG2628, OG2949 and OG3057 reached the database at 232, 1,113
@@ -456,6 +483,24 @@ Generalised from "fish + corals" to all invertebrates.
   `--tax-id unknown` and failed only after MEGAHIT had already burned the SUs.
 - Genome QC aborts on a sample with an `unknown` or empty class rather than guessing a
   BUSCO lineage for it.
+
+### `Documentation`
+
+- `docs/output.md` rebuilt from the publish rules and a real run: adds kraken2, SeqKit,
+  per-sample MultiQC, the GenomeScope reseed files, `_kmer_depth.json`, `megahit_checkpoints/`,
+  `push/` receipts, the mitogenome launcher and compute cost files, corrects the decontamination
+  file chain.
+- `docs/usage.md`: pawsey1348 paths, the full BUSCO lineage table including the four invertebrate
+  lineages, reference data, kraken2, FCS/Tiara, genome size check thresholds, skipping stages and
+  the `precomputed_*` globs, `--report_subdir`, `--stop_after_samplesheet`, the mitogenome hand-off
+  and compute cost.
+- `docs/internal_sop.md`: current paths, the `--skip_bs_download` typo, the mitogenome step, and
+  that the Acacia move leaves `fastp/` on scratch.
+- README rewritten for the current pipeline; new READMEs for `compute-audit/`,
+  `scripts/backup_scripts/`, `scripts/taxonomy/` and `tests/`.
+- CITATIONS: added Kraken 2, KrakenTools, SeqKit and NCBI Taxonomy; corrected the gfastats
+  reference, which had the wrong authors and DOI.
+- `nextflow_schema.json`: declared `interleave`; `tempdir` and `pooled` described as unused.
 
 ## v1.1.0 - 2026-08-21
 

@@ -18,6 +18,14 @@
 
 > Li D, Liu CM, Luo R, Sadakane K, Lam TW. MEGAHIT: an ultra-fast single-node solution for large and complex metagenomics assembly via succinct de Bruijn graph. Bioinformatics. 2015 May 15;31(10):1674-6. doi: 10.1093/bioinformatics/btv033.
 
+- [Kraken 2](https://pubmed.ncbi.nlm.nih.gov/31779668/)
+
+> Wood DE, Lu J, Langmead B. Improved metagenomic analysis with Kraken 2. Genome Biol. 2019 Nov 28;20(1):257. doi: 10.1186/s13059-019-1891-0.
+
+- [KrakenTools](https://pubmed.ncbi.nlm.nih.gov/36171387/)
+
+> Lu J, Rincon N, Wood DE, Breitwieser FP, Pockrandt C, Langmead B, Salzberg SL, Steinegger M. Metagenome analysis using the Kraken software suite. Nat Protoc. 2022 Dec;17(12):2815-2839. doi: 10.1038/s41596-022-00738-y.
+
 - [meryl / GenomeScope2](https://pubmed.ncbi.nlm.nih.gov/32319669/)
 
 > Ranallo-Benavidez TR, Jaron KS, Schatz MC. GenomeScope 2.0 and Smudgeplot for reference-free profiling of polyploid genomes. Bioinformatics. 2020 Apr 15;36(13):3687–3690. doi: 10.1093/bioinformatics/btaa111.
@@ -50,9 +58,13 @@
 
 > Rhie A, Walenz BP, Koren S, Phillippy AM. Merqury: reference-free quality, completeness, and phasing assessment for genome assemblies. Genome Biol. 2020 Nov 4;21(1):245. doi: 10.1186/s13059-020-02134-9.
 
-- [Gfastats](https://pubmed.ncbi.nlm.nih.gov/33751296/)
+- [Gfastats](https://pubmed.ncbi.nlm.nih.gov/35799367/)
 
-> Moerman T, Kurelović B, Startek M, Baert J, Callewaert N, Consortium T, Vandepoele K. Gfastats: conversion, evaluation and manipulation of genome sequences using assembly graphs. Bioinformatics. 2021 Jul 1;37(13):1921–1922. doi: 10.1093/bioinformatics/btab092.
+> Formenti G, Abueg L, Brajuka A, Brajuka N, Gallardo-Alba C, Giani A, Fedrigo O, Jarvis ED. Gfastats: conversion, evaluation and manipulation of genome sequences using assembly graphs. Bioinformatics. 2022 Sep 2;38(17):4214-4216. doi: 10.1093/bioinformatics/btac460.
+
+- [SeqKit](https://pubmed.ncbi.nlm.nih.gov/27706213/)
+
+> Shen W, Le S, Li Y, Hu F. SeqKit: a cross-platform and ultrafast toolkit for FASTA/Q file manipulation. PLoS One. 2016 Oct 5;11(10):e0163962. doi: 10.1371/journal.pone.0163962.
 
 - [MultiQC](https://pubmed.ncbi.nlm.nih.gov/27312411/)
 
@@ -61,6 +73,10 @@
 - [BEDTools](https://pubmed.ncbi.nlm.nih.gov/20110278/)
 
 > Quinlan AR, Hall IM. BEDTools: a flexible suite of utilities for comparing genomic features. Bioinformatics. 2010 Mar 15;26(6):841-842. doi: 10.1093/bioinformatics/btq033.
+
+- [NCBI Taxonomy](https://pubmed.ncbi.nlm.nih.gov/32761142/)
+
+> Schoch CL, Ciufo S, Domrachev M, Hotton CL, Kannan S, Khovanskaya R, Leipe D, Mcveigh R, O'Neill K, Robbertse B, Sharma S, Soussov V, Sullivan JP, Sun L, Turner S, Karsch-Mizrachi I. NCBI Taxonomy: a comprehensive update on curation, resources and tools. Database (Oxford). 2020;2020:baaa062. doi: 10.1093/database/baaa062.
 
 - [Illumina BaseSpace CLI](https://developer.basespace.illumina.com/docs/content/documentation/cli/cli-overview)
 

@@ -306,11 +306,17 @@
                 "tempdir": {
                     "type": "string",
                     "format": "directory-path",
-                    "description": "Temporary directory for Nextflow tasks."
+                    "description": "Accepted for compatibility with existing launchers; not currently used by any step."
                 },
                 "pooled": {
                     "type": "string",
-                    "description": "Path to pooled reads directory (used when skip_download_reads is true)."
+                    "description": "Pooled reads directory. Not read by the pipeline; skipped downloads use precomputed_download_reads_results."
+                },
+                "interleave": {
+                    "type": "boolean",
+                    "default": false,
+                    "hidden": true,
+                    "description": "Write interleaved rather than paired FASTQs from BBMAP_REPAIR. Leave false: downstream steps expect R1/R2 pairs."
                 },
                 "skip_bs_download": {
                     "type": "boolean",

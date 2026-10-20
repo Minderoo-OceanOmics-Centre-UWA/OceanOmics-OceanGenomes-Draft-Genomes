@@ -5,52 +5,84 @@
   </picture>
 </h1>
 
-[![nf-test](https://img.shields.io/badge/unit_tests-nf--test-337ab7.svg)](https://www.nf-test.com)
-
 [![Nextflow](https://img.shields.io/badge/nextflow%20DSL2-%E2%89%A524.04.2-23aa62.svg)](https://www.nextflow.io/)
-[![run with conda](http://img.shields.io/badge/run%20with-conda-3EB049?labelColor=000000&logo=anaconda)](https://docs.conda.io/en/latest/)
-[![run with docker](https://img.shields.io/badge/run%20with-docker-0db7ed?labelColor=000000&logo=docker)](https://www.docker.com/)
 [![run with singularity](https://img.shields.io/badge/run%20with-singularity-1d355c.svg?labelColor=000000)](https://sylabs.io/docs/)
 
 ## Introduction
 
-**OceanOmics-OceanGenomes-Draft-Genomes** builds short-read draft assemblies for Ocean Omics / Ocean Genomes samples. It can download Illumina runs directly from BaseSpace or consume existing FASTQs, performs adapter/quality trimming, estimates genome size and coverage, assembles with MEGAHIT, screens contaminants (NCBI FCS-GX, FCS adaptor, Tiara + BBMap), runs genome QC (BUSCO, BWA-MEM2, Merqury, Gfastats), and collates results with MultiQC. Optional steps push QC summaries into the project SQL database.
+**OceanOmics-OceanGenomes-Draft-Genomes** builds short-read draft genome assemblies for Ocean Omics /
+Ocean Genomes samples, fish and invertebrates alike. It downloads an Illumina run from BaseSpace (or
+takes existing FASTQs), assembles each sample, removes contamination, checks the assembly and the
+genome size estimate, and loads the QC metrics into the OceanOmics database.
 
-Key steps:
-
-- Download and re-pair reads from Illumina BaseSpace (optional if `--skip_download_reads` or `--input` used)
-- Read QC and trimming with FastQC / fastp
-- K-mer profiling (meryl, GenomeScope2) and coverage estimation
-- Assembly with MEGAHIT
-- Contamination filtering with NCBI FCS-GX + adaptor screening, Tiara classification, and BBMap cleanup
-- Genome QC with BUSCO, BWA-MEM2 alignments, Merqury, and Gfastats
-- MultiQC summary and optional SQL upload of QC metrics
+1. Download and re-pair reads from Illumina BaseSpace, and build the samplesheet from the database,
+   with an NCBI taxdump fallback for taxa not yet curated (optional if `--input` is used)
+2. Read QC and trimming with fastp and FastQC
+3. Read-level decontamination with kraken2 + KrakenTools (bacteria, archaea and viruses removed
+   before assembly)
+4. K-mer profiling with meryl and GenomeScope2
+5. Assembly with MEGAHIT, checkpointed and fingerprinted so interrupted assemblies resume safely
+6. Assembly decontamination with NCBI FCS-GX, FCS-adaptor and Tiara
+7. Genome QC with BUSCO (lineage chosen by taxonomic class), BWA-MEM2, Merqury, gfastats and SeqKit
+8. Genome size and coverage verdict: GenomeScope fit checks, an independent coverage measurement
+   from read depth over BUSCO genes, a host/symbiont depth partition of the assembly, an optional
+   reseeded GenomeScope refit, and a cross-check against the assembly
+9. Run-level and per-sample MultiQC reports
+10. Upload of QC metrics to the OceanOmics PostgreSQL database
+11. A ready-to-run launcher for the [mitogenome pipeline](https://github.com/Minderoo-OceanOmics-Centre-UWA/Oceanomics-OceanGenomes-Mitogenomes)
+    on the same reads, and per-sample compute (SU) cost
 
 ## Usage
 
-> [!NOTE]
-> If you are new to Nextflow, install it and make sure to test your setup with `-profile test` before running the workflow on actual data.
-
-For standard OceanGenomes runs on Pawsey, use the provided [`nextflow_run_template.sh`](nextflow_run_template.sh). The template is preconfigured with the project database, BaseSpace, BUSCO, contamination-screening, mitogenome, per-run working-directory, and backup-script settings. In most cases you only need to copy the template to a run-specific launcher, update the `RUN` variable, and launch it from the repository root:
+For standard OceanGenomes runs on Setonix, copy [`nextflow_run_template.sh`](nextflow_run_template.sh)
+to a run-specific launcher, set `RUN`, and launch it from the repository root:
 
 ```bash
-RUN=NEXT_250724_ET
+RUN=NOVA_260925_LA
 cp nextflow_run_template.sh "nextflow_run_${RUN}.sh"
 sed -i "s/^RUN=.*/RUN=${RUN}/" "nextflow_run_${RUN}.sh"
 bash "nextflow_run_${RUN}.sh"
 ```
 
-The run-specific launcher writes each run under `/scratch/pawsey0964/$USER/$RUN`, runs Nextflow from that output directory to avoid clashes between runs, and copies the backup helper scripts into the run directory. The plain [`nextflow_run.sh`](nextflow_run.sh) script is kept as an alternative for running from the repository directory, with the work directory under `./work/$RUN`. Use `--input <samplesheet.csv> --skip_download_reads true` if you already have FASTQs instead of pulling from BaseSpace.
+The launcher writes everything for the run under `/scratch/pawsey1348/$USER/$RUN`, launches Nextflow
+from that directory (so several runs can share one checkout), copies the backup scripts into it, and
+records per-sample compute cost when the run ends. To start from existing FASTQs instead of
+BaseSpace, use `--input <samplesheet.csv> --skip_download_reads true`.
 
 > [!WARNING]
-> Please provide pipeline parameters via the CLI or Nextflow `-params-file` option. Custom config files including those provided by the `-c` Nextflow option can be used to provide any configuration _**except for parameters**_.
+> Provide pipeline parameters on the command line or with `-params-file`. Config files given with
+> `-c` are for resources and executor settings only.
 
-For more details and further functionality, please refer to the local [usage documentation](docs/usage.md), [internal SOP](docs/internal_sop.md), and [`nextflow_schema.json`](nextflow_schema.json).
+## Documentation
 
-## Pipeline output
+- [Usage](docs/usage.md): running the pipeline, the samplesheet, BUSCO lineage selection, reference
+  data, QC thresholds, skipping stages, resuming MEGAHIT checkpoints, backfilling the database.
+- [Output](docs/output.md): every published file and how to read the coverage verdict.
+- [Internal SOP](docs/internal_sop.md): the step-by-step OceanGenomes run and backup procedure.
+- [`nextflow_schema.json`](nextflow_schema.json): every parameter (`nextflow run main.nf --help`).
+- [`CHANGELOG.md`](CHANGELOG.md): what changed and why.
 
-For more details about the output files and reports, please refer to the
-[output documentation](docs/output.md).
+Supporting tools in this repository:
+
+| Path | What it is |
+| --- | --- |
+| [`scripts/backup_scripts/`](scripts/backup_scripts/README.md) | Raw and final backups to S3 and Acacia, and the output file check |
+| [`compute-audit/`](compute-audit/README.md) | Per-run and per-sample Slurm SU accounting |
+| [`scripts/taxonomy/`](scripts/taxonomy/README.md) | Bulk-load NCBI taxa into the `species` table |
+| [`bin/backfill_draft_genome_stats.py`](docs/usage.md#backfilling-database-statistics-from-acacia) | Backfill database statistics from archived runs |
+| [`scripts/rerun_NOVA_260909_LA/`](scripts/rerun_NOVA_260909_LA/README.md) | Remediation re-run of NOVA_260909_LA and the investigations behind the genome size checks |
+| [`tests/`](tests/README.md) | Unit tests for the Python helpers in `bin/` |
+
+## Testing
+
+The Python helpers in `bin/` have unit tests that run with the system Python, no extra packages
+needed:
+
+```bash
+python3 -m unittest discover -s tests -p "test_*.py"
+```
+
+See [`tests/README.md`](tests/README.md) for what each file covers.
 
 ## Credits
 
