@@ -449,6 +449,7 @@ def recheck_against_assembly(coverage, assembly_size, thresholds=None, kmer_dept
         merged["lambda_depth"] = lam
         merged["kmercov"] = kmercov
         merged["busco_mean_depth"] = kmer_depth.get("busco_mean_depth")
+        merged["busco_regions"] = kmer_depth.get("busco_regions")
         merged["assembly_mean_depth"] = kmer_depth.get("assembly_mean_depth")
         merged["busco_depth_over_assembly_depth"] = host_ratio
 

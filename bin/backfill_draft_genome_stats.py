@@ -24,6 +24,7 @@ from draft_genome_stats import (
     parse_decontamination,
     parse_fastp,
     parse_coverage_summary,
+    parse_kmer_depth,
     parse_genomescope,
     parse_gfastats,
     upsert_record,
@@ -35,6 +36,7 @@ COMPONENTS: dict[str, tuple[str, Callable[[Path], dict[str, Any]]]] = {
     "fastp": ("**/*.fastp.json", parse_fastp),
     "genomescope": ("kmers/*genomescope/*summary.txt", parse_genomescope),
     "coverage_summary": ("coverage/*_coverage_summary.json", parse_coverage_summary),
+    "kmer_depth": ("coverage/*_kmer_depth.json", parse_kmer_depth),
     "tiara": ("assemblies/genome/tiara/*tiara_filter_summary.txt", lambda path: _parse_decontam_part(path, "tiara")),
     "filter_report": ("assemblies/genome/NCBI/*filter_report.txt", lambda path: _parse_decontam_part(path, "filter")),
     "contigs_lt500": ("assemblies/genome/NCBI/*contig_count_500bp.txt", lambda path: _parse_decontam_part(path, "contigs")),
@@ -55,7 +57,7 @@ COMPONENT_PREFERRED: dict[str, str] = {
 # Components a sample may legitimately lack. The coverage summary post-dates most of the
 # archive, and an older run having no reliability verdict is not a reason to refuse to
 # backfill the GenomeScope numbers that are there.
-OPTIONAL_COMPONENTS = {"coverage_summary"}
+OPTIONAL_COMPONENTS = {"coverage_summary", "kmer_depth"}
 
 # Columns that come only from an optional component, so a sample legitimately lacking that
 # component must not be failed for not producing them.
@@ -63,7 +65,8 @@ OPTIONAL_COMPONENTS = {"coverage_summary"}
 # is not the case for archived runs predating the reliability gate.
 OPTIONAL_COLUMNS = {"genome_size_reliable", "genome_size_flags", "kmercov", "lambda_depth",
                     "host_assembly_size", "host_assembly_fraction",
-                    "host_haploid_size", "partition_confidence"}
+                    "host_haploid_size", "partition_confidence",
+                    "partition_note", "busco_regions", "busco_read_depth", "genomescope_fit"}
 
 INVENTORY_FIELDS = ("og_id", "seq_date", *COMPONENTS.keys(), "status", "details")
 UPLOAD_FIELDS = ("og_id", "seq_date", "status", "details")
@@ -215,6 +218,11 @@ def discover_sample(archive_root: Path, og_id: str, seq_date: str,
         assembly = {**sample.records["genomescope"],
                     **{key: value for key, value in sample.records.get("coverage_summary", {}).items()
                        if key not in ("og_id", "seq_date")}}
+        # The coverage summary copies its depth fields from *_kmer_depth.json, and older
+        # summaries lack busco_regions, so the measurement fills only what is still empty.
+        for key, value in sample.records.get("kmer_depth", {}).items():
+            if key not in ("og_id", "seq_date") and assembly.get(key) is None:
+                assembly[key] = value
         families = {
             "fastp": sample.records["fastp"],
             "assembly": assembly,

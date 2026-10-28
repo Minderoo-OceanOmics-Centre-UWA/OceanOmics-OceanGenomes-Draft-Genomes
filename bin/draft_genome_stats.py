@@ -44,6 +44,14 @@ FAMILY_COLUMNS = {
         # partition's BUSCO anchor could be trusted at all. A low-confidence partition is
         # one whose host size should not be quoted.
         "host_haploid_size", "partition_confidence",
+        # Why a partition is low confidence, and how many BUSCO genes it and the depth rest
+        # on. busco_read_depth is the per-base read depth over those genes: the sequencing
+        # depth ENA's COVERAGE wants. lambda_depth is the same depth halved and moved into
+        # k-mer space, for checking GenomeScope, and must not be sent as a coverage.
+        "partition_note", "busco_regions", "busco_read_depth",
+        # Which GenomeScope fit the numbers above are: the original, or the reseeded refit
+        # that GENOMESCOPE_RESEED keeps only when it wins.
+        "genomescope_fit",
     ),
     "decontamination": (
         "num_contigs_mitochondrion", "num_contigs_plastid",
@@ -74,6 +82,7 @@ FLOAT_COLUMNS = {
     "q30_rate", "gc_content", "homozygosity", "heterozygosity",
     "modelfit", "errorrate", "modelfit_allkmers", "homozygosity_min",
     "heterozygosity_min", "lambda_depth", "kmercov", "host_assembly_fraction",
+    "busco_read_depth",
     "complete", "single_copy", "multi_copy",
     "fragmented", "missing", "percent_gaps", "scaffold_n50",
     "internal_stop_codon_percent", "qv", "error", "completeness",
@@ -318,6 +327,47 @@ def parse_coverage_summary(path: PathLike) -> dict[str, Any]:
         "host_assembly_fraction": _float(data.get("host_assembly_fraction")),
         "host_haploid_size": _int(data.get("host_haploid_size")),
         "partition_confidence": data.get("partition_confidence") or None,
+        "partition_note": data.get("partition_note") or None,
+        "busco_read_depth": _float(data.get("busco_mean_depth")),
+        "genomescope_fit": data.get("genomescope_fit") or None,
+    }
+    # Summaries written before RECHECK_GENOME_SIZE carried it have no busco_regions; leave
+    # the column to *_kmer_depth.json then rather than writing a NULL over it.
+    if "busco_regions" in data:
+        values["busco_regions"] = _int(data.get("busco_regions"))
+    return _record(og_id, seq_date, values)
+
+
+# The columns that come from read depth over the assembly, and nothing else. A depth-only
+# upload writes these and leaves the GenomeScope numbers and the verdict alone.
+DEPTH_COLUMNS = (
+    "lambda_depth", "busco_read_depth", "busco_regions",
+    "host_assembly_size", "host_assembly_fraction", "host_haploid_size",
+    "partition_confidence", "partition_note",
+)
+
+
+def parse_kmer_depth(path: PathLike) -> dict[str, Any]:
+    """Read depth and the host partition from a published *_kmer_depth.json.
+
+    This is where SUMMARISE_KMER_COVERAGE writes them first; the coverage summary copies
+    them. It is the only source for a depth-only re-run, which has no new coverage
+    summary, and the only source of busco_regions for summaries that predate it. A sample
+    whose assembly gave too few BUSCO regions has a row here with every depth null and a
+    status saying so, and that is uploaded as nulls, not skipped.
+    """
+    with open(path, encoding="utf-8") as handle:
+        data = json.load(handle)
+    og_id, seq_date = ids_from_dot_name(Path(path).name)
+    values = {
+        "lambda_depth": _float(data.get("lambda_depth")),
+        "busco_read_depth": _float(data.get("busco_mean_depth")),
+        "busco_regions": _int(data.get("busco_regions")),
+        "host_assembly_size": _int(data.get("host_assembly_size")),
+        "host_assembly_fraction": _float(data.get("host_assembly_fraction")),
+        "host_haploid_size": _int(data.get("host_haploid_size")),
+        "partition_confidence": data.get("partition_confidence") or None,
+        "partition_note": data.get("partition_note") or None,
     }
     return _record(og_id, seq_date, values)
 

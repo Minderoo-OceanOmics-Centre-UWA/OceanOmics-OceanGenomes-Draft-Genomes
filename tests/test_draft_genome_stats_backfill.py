@@ -378,6 +378,30 @@ class CoverageSummaryTests(unittest.TestCase):
         self.assertAlmostEqual(record["kmercov"], 39.1)
         self.assertAlmostEqual(record["lambda_depth"], 2.5)
 
+    def test_reads_read_depth_fit_and_partition_note(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "OG1.ilmn.250101_coverage_summary.json"
+            write(path, json.dumps({
+                "lambda_depth": 13.3, "busco_mean_depth": 30.7, "busco_regions": 2410,
+                "genomescope_fit": "reseeded", "partition_confidence": "low",
+                "partition_note": "anchor_off_mode",
+            }))
+            record = stats.parse_coverage_summary(path)
+        # The read depth itself, not lambda_depth, which is it halved in k-mer space.
+        self.assertAlmostEqual(record["busco_read_depth"], 30.7)
+        self.assertEqual(record["busco_regions"], 2410)
+        self.assertEqual(record["genomescope_fit"], "reseeded")
+        self.assertEqual(record["partition_note"], "anchor_off_mode")
+
+    def test_summary_without_busco_regions_leaves_the_column_alone(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "OG1.ilmn.250101_coverage_summary.json"
+            write(path, json.dumps({"lambda_depth": 2.5}))
+            record = stats.parse_coverage_summary(path)
+        self.assertNotIn("busco_regions", record)
+        self.assertIsNone(record["busco_read_depth"])
+
+
     def test_identity_falls_back_to_the_input_file(self):
         # Refits published before the name prefix was fixed say "name prefix = reseed";
         # the input file line still names the sample.
@@ -387,3 +411,55 @@ class CoverageSummaryTests(unittest.TestCase):
             record = stats.parse_genomescope(write(Path(tmp) / "summary.txt", text))
         self.assertEqual((record["og_id"], record["seq_date"]), ("OG1", "250101"))
 
+
+class KmerDepthTests(unittest.TestCase):
+    def kmer_depth(self, tmp, **fields):
+        path = Path(tmp) / "OG2.ilmn.251210_kmer_depth.json"
+        return write(path, json.dumps({"sample_id": "OG2.ilmn.251210", "status": "ok", **fields}))
+
+    def test_parses_only_the_depth_columns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            record = stats.parse_kmer_depth(self.kmer_depth(
+                tmp, busco_mean_depth=23.3, busco_regions=1800, lambda_depth=10.1,
+                host_assembly_size=640_000_000, host_assembly_fraction=0.99,
+                host_haploid_size=638_000_000, partition_confidence="high",
+                genomescope_kmercov=9.4))
+        self.assertEqual((record["og_id"], record["seq_date"]), ("OG2", "251210"))
+        self.assertEqual(set(record) - {"og_id", "seq_date"}, set(stats.DEPTH_COLUMNS))
+        self.assertAlmostEqual(record["busco_read_depth"], 23.3)
+        self.assertEqual(record["host_haploid_size"], 638_000_000)
+        self.assertIsNone(record["partition_note"])
+
+    def test_too_few_regions_is_a_row_of_nulls(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            record = stats.parse_kmer_depth(self.kmer_depth(
+                tmp, status="too_few_busco_regions", busco_mean_depth=None, busco_regions=7,
+                lambda_depth=None))
+        self.assertIsNone(record["busco_read_depth"])
+        self.assertEqual(record["busco_regions"], 7)
+
+    def test_depth_columns_are_all_assembly_columns(self):
+        self.assertTrue(set(stats.DEPTH_COLUMNS) <= set(stats.FAMILY_COLUMNS["assembly"]))
+
+    def test_upsert_writes_only_the_depth_columns(self):
+        cursor = mock.Mock()
+        record = {"og_id": "OG2", "seq_date": "251210", **dict.fromkeys(stats.DEPTH_COLUMNS)}
+        stats.upsert_record(cursor, "assembly", record)
+        sql = cursor.execute.call_args[0][0]
+        for column in ("genomesize", "kmercov", "genome_size_reliable", "genomescope_fit"):
+            self.assertNotIn(column, sql)
+
+    def test_backfill_fills_busco_regions_from_the_measurement(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sample = make_archive(root)
+            write(sample / "coverage" / "OG1.ilmn.250101_coverage_summary.json",
+                  json.dumps({"lambda_depth": 5.0, "busco_mean_depth": 11.5}))
+            write(sample / "coverage" / "OG1.ilmn.250101_kmer_depth.json",
+                  json.dumps({"lambda_depth": 5.0, "busco_mean_depth": 99.0, "busco_regions": 321}))
+            found = backfill.discover_sample(root, "OG1", "250101")
+        self.assertTrue(found.valid, found.errors)
+        assembly = found.records["assembly"]
+        self.assertEqual(assembly["busco_regions"], 321)
+        # The summary's value stands; the measurement only fills what is empty.
+        self.assertAlmostEqual(assembly["busco_read_depth"], 11.5)
