@@ -64,7 +64,8 @@ gate = json.loads(subprocess.check_output([
     "--peak-search-max", "${params.genomescope_peak_search_max}",
 ], text=True))
 
-estimated_genome_size = gate["estimated_genome_size"] or 0
+# GenomeScope's failure value is -1 bp. Zero means no estimate everywhere downstream.
+estimated_genome_size = max(gate["estimated_genome_size"] or 0, 0)
 genome_size_flags = gate["genome_size_flags"]
 genome_size_reliable = gate["genome_size_reliable"]
 # GenomeScope's two Model Fit values are not bounds: the first is the share of ALL
@@ -81,7 +82,6 @@ coverage_after = total_bases_after / estimated_genome_size if estimated_genome_s
 
 # Calculate other useful metrics
 bases_removed = total_bases_before - total_bases_after
-reads_removed = total_reads_before - total_reads_after
 filtering_efficiency = (bases_removed / total_bases_before * 100) if total_bases_before > 0 else 0
 data_retention = total_bases_after / total_bases_before * 100 if total_bases_before > 0 else 0
 
@@ -115,48 +115,6 @@ if not genome_size_reliable:
 def pct(value):
     return "NA" if value is None else f"{value:.4f}%"
 
-
-# Write detailed report
-with open("${prefix}_sequencing_coverage.txt", 'w') as f:
-    f.write("SEQUENCING COVERAGE ANALYSIS\\n")
-    f.write("=" * 50 + "\\n\\n")
-    f.write(f"Sample ID: ${meta.id}\\n\\n")
-
-    f.write("GENOME SIZE ESTIMATION (GenomeScope):\\n")
-    f.write(f"  Estimated genome size: {estimated_genome_size:,} bp\\n")
-    if gate["genome_size_min"] and gate["genome_size_max"]:
-        f.write(f"  Genome size range: {gate['genome_size_min']:,} - {gate['genome_size_max']:,} bp\\n")
-    f.write(f"  Estimated heterozygosity: {pct(heterozygosity_min)} - {pct(heterozygosity_max)}\\n")
-    f.write(f"  Model fit (full model): {pct(model_fit_full)}\\n")
-    f.write(f"  K-mers modelled (all k-mers): {pct(model_fit_allkmers)}\\n")
-    f.write("\\n")
-
-    f.write("SEQUENCING STATISTICS (FastP):\\n")
-    f.write("  Before filtering:\\n")
-    f.write(f"    Total reads: {total_reads_before:,}\\n")
-    f.write(f"    Total bases: {total_bases_before:,} bp\\n")
-    f.write(f"    Theoretical coverage: {coverage_before:.1f}x\\n\\n")
-
-    f.write("  After filtering:\\n")
-    f.write(f"    Total reads: {total_reads_after:,}\\n")
-    f.write(f"    Total bases: {total_bases_after:,} bp\\n")
-    f.write(f"    Theoretical coverage: {coverage_after:.1f}x\\n\\n")
-
-    f.write("FILTERING SUMMARY:\\n")
-    f.write(f"  Reads removed: {reads_removed:,} ({reads_removed/total_reads_before*100:.1f}%)\\n")
-    f.write(f"  Bases removed: {bases_removed:,} ({filtering_efficiency:.1f}%)\\n")
-    f.write(f"  Data retention: {data_retention:.1f}%\\n\\n")
-
-    f.write(f"  K-mer peak coverage: {peak_coverage}x\\n" if peak_coverage else "  K-mer peak coverage: none detected\\n")
-    f.write(f"  Fitted k-mer coverage (GenomeScope kmercov): {kmercov:.1f}x\\n" if kmercov else "  Fitted k-mer coverage: NA\\n")
-    f.write(f"  Genome size estimate reliable: {'yes' if genome_size_reliable else 'no'}\\n")
-    if genome_size_flags:
-        f.write(f"  Genome size warnings: {', '.join(genome_size_flags)}\\n")
-    f.write("\\n")
-
-    f.write("COVERAGE ASSESSMENT:\\n")
-    f.write(f"  Status: {coverage_status} coverage ({coverage_after:.1f}x)\\n")
-    f.write(f"  Recommendation: {coverage_recommendation}\\n")
 
 # Create JSON summary for downstream processes
 summary_data = {
@@ -192,6 +150,13 @@ summary_data = {
 
 with open("${prefix}_coverage_summary.json", 'w') as f:
     json.dump(summary_data, f, indent=2)
+
+# Rendered from the summary rather than written alongside it, by the same code that
+# RECHECK_GENOME_SIZE uses to rewrite it, so the text file can never disagree with the JSON.
+with open("${prefix}_sequencing_coverage.txt", 'w') as f:
+    f.write(subprocess.check_output(
+        ["genomescope_reliability.py", "--render-report", "${prefix}_coverage_summary.json"],
+        text=True))
 
 coverage_rows = [
     ("Sample ID", "${meta.id}"),

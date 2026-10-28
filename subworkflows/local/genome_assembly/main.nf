@@ -10,7 +10,6 @@ include { MERYL_UNIONSUM            } from '../../../modules/nf-core/meryl/union
 include { MERYL_HISTOGRAM           } from '../../../modules/nf-core/meryl/histogram'
 include { GENOMESCOPE2              } from '../../../modules/nf-core/genomescope2'
 include { CALCULATE_SEQUENCING_COVERAGE  } from '../../../modules/local/coverage/calculations'
-include { COMPILE_JSON_TO_CSV       } from '../../../modules/local/coverage/compile'
 include { MEGAHIT                   } from '../../../modules/local/megahit'
 include { KRAKEN2_KRAKEN2           } from '../../../modules/local/kraken2/kraken2'
 include { KRAKENTOOLS_EXTRACTREADS  } from '../../../modules/local/krakentools/extractreads'
@@ -129,17 +128,9 @@ workflow GENOME_ASSEMBLY {
     )
     ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(CALCULATE_SEQUENCING_COVERAGE.out.multiqc)
     ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(CALCULATE_SEQUENCING_COVERAGE.out.tool_params)
-    
-    // Collect all JSON outputs from coverage calculation to compile into a single CSV
-    collected_jsons = CALCULATE_SEQUENCING_COVERAGE.out.coverage_json.collect()
-    
-    //
-    // MODULE: Compile samples coverage calculations into one CSV
-    //
 
-    COMPILE_JSON_TO_CSV(collected_jsons)
-    ch_multiqc_files = ch_multiqc_files.mix(COMPILE_JSON_TO_CSV.out.multiqc)
-    ch_multiqc_files = ch_multiqc_files.mix(COMPILE_JSON_TO_CSV.out.tool_params)
+    // The run-level coverage CSV is compiled in the main workflow, from the final
+    // summaries RECHECK_GENOME_SIZE writes, not from these provisional ones.
 
     //
     // MODULE: Run Megahit
@@ -172,7 +163,6 @@ workflow GENOME_ASSEMBLY {
     ch_versions = ch_versions.mix(MERYL_HISTOGRAM.out.versions.first())
     ch_versions = ch_versions.mix(GENOMESCOPE2.out.versions.first())
     ch_versions = ch_versions.mix(CALCULATE_SEQUENCING_COVERAGE.out.versions.first())
-    ch_versions = ch_versions.mix(COMPILE_JSON_TO_CSV.out.versions.first())
     ch_versions = ch_versions.mix(MEGAHIT.out.versions.first())
 
     //

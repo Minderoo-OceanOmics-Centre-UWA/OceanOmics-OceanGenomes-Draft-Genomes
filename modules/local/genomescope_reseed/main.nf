@@ -34,6 +34,9 @@ process GENOMESCOPE_RESEED {
     tuple val(meta), path("${prefix}_reseed_decision.json"), emit: decision
     tuple val(meta), path("${prefix}_genomescope2_reseeded_summary.txt"), emit: summary, optional: true
     tuple val(meta), path("${prefix}_genomescope2_reseeded_model.txt"), emit: model, optional: true
+    // The fit everything downstream uses: the refit when it won, the original otherwise.
+    // Always emitted, so consumers join on it without optional or remainder joins.
+    tuple val(meta), path("chosen/${prefix}_genomescope2_summary.txt"), path("chosen/${prefix}_genomescope2_model.txt"), emit: chosen
     tuple val(meta), path("33_genomescope_reseed.tool_params_mqcrow.html"), emit: tool_params
     path "versions.yml", emit: versions
 
@@ -60,7 +63,7 @@ process GENOMESCOPE_RESEED {
             -m ${params.genomescope2_m} \\
             -l "\$SEED" \\
             --output reseed \\
-            --name_prefix reseed || true
+            --name_prefix ${prefix}_genomescope2_reseeded || true
     fi
 
     genomescope_reseed_decide.py choose \\
@@ -68,17 +71,25 @@ process GENOMESCOPE_RESEED {
         --kmer-depth-json ${kmer_depth_json} \\
         --original-summary ${summary} \\
         --original-model ${model} \\
-        --reseeded-summary reseed/reseed_summary.txt \\
-        --reseeded-model reseed/reseed_model.txt \\
+        --reseeded-summary reseed/${prefix}_genomescope2_reseeded_summary.txt \\
+        --reseeded-model reseed/${prefix}_genomescope2_reseeded_model.txt \\
         --seed "\$SEED" \\
         --min-reseed-fit-gain ${params.genomescope_min_reseed_fit_gain} \\
         --out ${prefix}_reseed_decision.json
 
     # Publish the reseeded fit only when it won, so there is never a better-looking file
     # on disk than the one the pipeline actually used.
+    # The refit's own name prefix is the sample prefix, so its summary parses to the OG ID
+    # like the original's; "reseed" did not, and the database parser rejected it.
+    mkdir -p chosen
     if [ "\$(python3 -c "import json;print(json.load(open('${prefix}_reseed_decision.json'))['winner'])")" = "reseeded" ]; then
-        cp reseed/reseed_summary.txt ${prefix}_genomescope2_reseeded_summary.txt
-        cp reseed/reseed_model.txt ${prefix}_genomescope2_reseeded_model.txt
+        cp reseed/${prefix}_genomescope2_reseeded_summary.txt ${prefix}_genomescope2_reseeded_summary.txt
+        cp reseed/${prefix}_genomescope2_reseeded_model.txt ${prefix}_genomescope2_reseeded_model.txt
+        cp reseed/${prefix}_genomescope2_reseeded_summary.txt chosen/${prefix}_genomescope2_summary.txt
+        cp reseed/${prefix}_genomescope2_reseeded_model.txt chosen/${prefix}_genomescope2_model.txt
+    else
+        cp ${summary} chosen/${prefix}_genomescope2_summary.txt
+        cp ${model} chosen/${prefix}_genomescope2_model.txt
     fi
 
     cat <<-END_TOOL_PARAMS > 33_genomescope_reseed.tool_params_mqcrow.html
@@ -95,6 +106,7 @@ process GENOMESCOPE_RESEED {
     prefix = task.ext.prefix ?: "${meta.prefix}"
     """
     echo '{"winner": "original", "reason": "stub"}' > ${prefix}_reseed_decision.json
+    mkdir -p chosen && touch chosen/${prefix}_genomescope2_summary.txt chosen/${prefix}_genomescope2_model.txt
     touch 33_genomescope_reseed.tool_params_mqcrow.html
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

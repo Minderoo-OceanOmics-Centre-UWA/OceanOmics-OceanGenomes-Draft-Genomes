@@ -13,6 +13,8 @@ include { UPLOAD_RESULTS            } from '../subworkflows/local/upload_results
 
 // Modules
 include { TRIGGER_MITOGENOME        } from '../modules/local/trigger_mitogenome'
+include { CALCULATE_SEQUENCING_COVERAGE } from '../modules/local/coverage/calculations'
+include { COMPILE_JSON_TO_CSV       } from '../modules/local/coverage/compile'
 include { MULTIQC                   } from '../modules/nf-core/multiqc/main'
 include { MULTIQC_PER_SAMPLE        } from '../modules/local/multiqc_per_sample/main'
 include { TAXON                     } from '../modules/local/taxon_from_db'
@@ -160,6 +162,10 @@ workflow OCEANGENOMES_DRAFTGENOMES {
             }
 
         ch_precomputed_genomescope_summary = warnIfEmpty(Channel.fromPath(params.precomputed_genomescope_summary, checkIfExists: false), params.precomputed_genomescope_summary)
+        // GENOMESCOPE_RESEED publishes its refit beside the original as *_reseeded_*, which
+        // the glob also matches; both would key to one sample and the join would keep
+        // whichever arrived first. The provisional summary is built from the original fit.
+        .filter { file -> !file.name.contains('_reseeded_') }
         .map { file ->
             // Extract sample_id from the file basename
             def file_name = file.baseName
@@ -170,20 +176,13 @@ workflow OCEANGENOMES_DRAFTGENOMES {
             .join(ch_precomputed_genomescope_summary)
             .map { key, meta, file -> tuple(meta, file) }
 
-        // The coverage summary is re-checked against the assembly during QC, so it has to
-        // be available even when assembly is skipped and the k-mer stage never ran.
-        ch_precomputed_coverage_summary = warnIfEmpty(Channel.fromPath(params.precomputed_coverage_summary, checkIfExists: false), params.precomputed_coverage_summary)
-        .map { file ->
-            def sample_id = file.baseName.split('\\_')[0] // drops the '_coverage_summary' suffix
-            tuple(sample_id, file)
-        }
-        ch_coverage_summary = ch_meta_by_prefix
-            .join(ch_precomputed_coverage_summary)
-            .map { key, meta, file -> tuple(meta, file) }
-
         // The fitted kmercov, needed by MEASURE_KMER_COVERAGE in QC for the read-depth
         // comparison, so it has to survive a skipped assembly stage like the summary does.
         ch_precomputed_genomescope_model = warnIfEmpty(Channel.fromPath(params.precomputed_genomescope_model, checkIfExists: false), params.precomputed_genomescope_model)
+        // GENOMESCOPE_RESEED publishes its refit beside the original as *_reseeded_*, which
+        // the glob also matches; both would key to one sample and the join would keep
+        // whichever arrived first. The provisional summary is built from the original fit.
+        .filter { file -> !file.name.contains('_reseeded_') }
         .map { file ->
             def sample_id = file.baseName.split('\\_')[0] // drops the '_genomescope2_model' suffix
             tuple(sample_id, file)
@@ -200,6 +199,38 @@ workflow OCEANGENOMES_DRAFTGENOMES {
         ch_meryl_hist = ch_meta_by_prefix
             .join(ch_precomputed_meryl_hist)
             .map { key, meta, file -> tuple(meta, file) }
+
+        // The coverage summary is re-checked against the assembly during QC, so it has to
+        // be available even when assembly is skipped and the k-mer stage never ran.
+        //
+        // Where QC will run, it is recomputed from the published GenomeScope files rather
+        // than read back. The published summary is whatever the gate of its day produced,
+        // and the recheck only adds to it: NOVA_260909_LA's 16 skip-tier samples kept a
+        // September parse that read GenomeScope's "-1 bp" as 1 bp (OG2653, 18 billion x)
+        // and an "Inf bp" bound as 35.8 Mb (OG2647), and missed the k-mer checks on 9 of 16.
+        // Recomputing is a few seconds of Python per sample.
+        //
+        // With QC skipped there is no recheck to follow, so the published summary is the
+        // final verdict and is the one to carry forward.
+        if (!params.skip_genome_qc) {
+            // Joined on the sample id, not the whole meta: the fastp branch builds its own.
+            ch_coverage_calc = ch_fastp_json.map { meta, file -> tuple(meta.id, meta, file) }
+                .join(ch_genomescope_summary.map { meta, file -> tuple(meta.id, file) })
+                .join(ch_genomescope_model.map { meta, file -> tuple(meta.id, file) })
+                .join(ch_meryl_hist.map { meta, file -> tuple(meta.id, file) })
+                .map { _id, meta, fastp, summary, model, hist -> tuple(meta, fastp, summary, model, hist) }
+            CALCULATE_SEQUENCING_COVERAGE(ch_coverage_calc)
+            ch_coverage_summary = CALCULATE_SEQUENCING_COVERAGE.out.coverage_json_meta
+        } else {
+            ch_precomputed_coverage_summary = warnIfEmpty(Channel.fromPath(params.precomputed_coverage_summary, checkIfExists: false), params.precomputed_coverage_summary)
+            .map { file ->
+                def sample_id = file.baseName.split('\\_')[0] // drops the '_coverage_summary' suffix
+                tuple(sample_id, file)
+            }
+            ch_coverage_summary = ch_meta_by_prefix
+                .join(ch_precomputed_coverage_summary)
+                .map { key, meta, file -> tuple(meta, file) }
+        }
 
         ch_precomputed_meryl_db = warnIfEmpty(Channel.fromPath(params.precomputed_meryl_results, type: 'dir', checkIfExists: false), params.precomputed_meryl_results)
         .map { meryl_dir ->
@@ -317,6 +348,9 @@ workflow OCEANGENOMES_DRAFTGENOMES {
         // RECHECK_GENOME_SIZE's output supersedes the provisional summary from assembly:
         // it is the one carrying the assembly and read-depth cross-checks.
         ch_coverage_summary_final = GENOME_QC.out.coverage_summary
+        // The GenomeScope fit GENOMESCOPE_RESEED chose: the refit where it won. The
+        // coverage summary above describes that same fit, so the row is consistent.
+        ch_genomescope_summary_upload = GENOME_QC.out.genomescope_summary
     } else if (params.precomputed_genome_qc_results) {
         // Use precomputed results if analysis is skipped
         /* For the genome QC there is going to be multiple outputs of the results from the different modules run within this subworkflow.
@@ -377,6 +411,25 @@ workflow OCEANGENOMES_DRAFTGENOMES {
         // run left. It still carries its own assembly_cross_check field saying so.
         ch_coverage_summary_final = ch_coverage_summary
 
+        // A push-only run uploads the published final summary, which describes the refit
+        // where one won, and the refit is published only when it won. Prefer it, so the
+        // size and the verdict in the row are about the same fit. With assembly re-run in
+        // this launch any refit on disk predates the new GenomeScope fit, so the fresh
+        // original is the one to upload.
+        if (params.skip_genome_assembly) {
+            ch_genomescope_summary_upload = warnIfEmpty(Channel.fromPath(params.precomputed_genomescope_summary, checkIfExists: false), params.precomputed_genomescope_summary)
+                .map { file -> tuple(file.baseName.split('\\_')[0], file) }
+                .groupTuple()
+                .map { sample_id, files ->
+                    tuple(sample_id, files.find { it.name.contains('_reseeded_') } ?: files.find { !it.name.contains('_reseeded_') })
+                }
+            ch_genomescope_summary_upload = ch_meta_by_prefix
+                .join(ch_genomescope_summary_upload)
+                .map { _key, meta, file -> tuple(meta, file) }
+        } else {
+            ch_genomescope_summary_upload = ch_genomescope_summary
+        }
+
         ch_precomputed_gfastats_results = warnIfEmpty(Channel.fromPath(params.precomputed_gfastats_results_results, checkIfExists: false), params.precomputed_gfastats_results_results)
             .map { file ->
                 def sample_id = file.baseName.split('\\.')[0..2].join('.')
@@ -390,7 +443,23 @@ workflow OCEANGENOMES_DRAFTGENOMES {
         ch_merqury_results = Channel.empty()
         ch_gfastats_results = Channel.empty()
         ch_coverage_summary_final = Channel.empty()
+        ch_genomescope_summary_upload = ch_genomescope_summary
     }
+
+    //
+    // MODULE: Compile the per-sample coverage verdicts into the run-level CSV
+    //
+
+    // Compiled here, from the final summaries, so the table carries the assembly,
+    // read-depth and BUSCO checks. It used to run inside GENOME_ASSEMBLY on the
+    // provisional summaries, so every row read "assembly_cross_check": "pending".
+    // With QC skipped and nothing precomputed there is no final summary, and the
+    // provisional ones are the best available.
+    ch_coverage_summary_for_csv = (params.skip_genome_qc && !params.precomputed_genome_qc_results) ?
+        ch_coverage_summary : ch_coverage_summary_final
+    COMPILE_JSON_TO_CSV(
+        ch_coverage_summary_for_csv.map { _meta, json -> json }.collect()
+    )
 
 
     //
@@ -400,7 +469,7 @@ workflow OCEANGENOMES_DRAFTGENOMES {
     if (!params.skip_upload_results) {
         UPLOAD_RESULTS (
             ch_fastp_json,
-            ch_genomescope_summary,
+            ch_genomescope_summary_upload,
             ch_coverage_summary_final,
             ch_filter_report,
             ch_contigs_under_500bp,
@@ -421,6 +490,8 @@ workflow OCEANGENOMES_DRAFTGENOMES {
     if (!params.skip_genome_decontamination) {ch_multiqc_files = ch_multiqc_files.mix(GENOME_DECONTAMINATION.out.multiqc_files)}
     if (!params.skip_genome_qc) {ch_multiqc_files = ch_multiqc_files.mix(GENOME_QC.out.multiqc_files)}
     // if (!params.skip_upload_results) {ch_multiqc_files = ch_multiqc_files.mix(UPLOAD_RESULTS.out.multiqc_files)}
+    ch_multiqc_files = ch_multiqc_files.mix(COMPILE_JSON_TO_CSV.out.multiqc)
+    ch_multiqc_files = ch_multiqc_files.mix(COMPILE_JSON_TO_CSV.out.tool_params)
 
     if (!params.skip_fastp_fastqc) {ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(FASTP_FASTQC.out.multiqc_inputs)}
     if (!params.skip_genome_assembly) {ch_sample_multiqc_inputs = ch_sample_multiqc_inputs.mix(GENOME_ASSEMBLY.out.multiqc_inputs)}
@@ -438,6 +509,7 @@ workflow OCEANGENOMES_DRAFTGENOMES {
     if (!params.skip_genome_decontamination) {ch_versions = ch_versions.mix(GENOME_DECONTAMINATION.out.versions)}
     if (!params.skip_genome_qc) {ch_versions = ch_versions.mix(GENOME_QC.out.versions)}
     // if (!params.skip_upload_results) {ch_versions = ch_versions.mix(UPLOAD_RESULTS.out.versions)}
+    ch_versions = ch_versions.mix(COMPILE_JSON_TO_CSV.out.versions)
 
     // Run-level, so concurrent launches sharing one outdir would overwrite each other's
     // copy. report_subdir keeps them apart, the same way it does for multiqc and the

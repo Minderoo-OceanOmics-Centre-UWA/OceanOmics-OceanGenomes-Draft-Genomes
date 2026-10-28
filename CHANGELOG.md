@@ -9,6 +9,37 @@ Generalised from "fish + corals" to all invertebrates.
 
 ### `Added`
 
+- `--stop_after_samplesheet`: download the reads, publish the samplesheet (taxonomy still
+  checked) and stop before any assembly, so a batch can be reviewed and trimmed. Re-running
+  without the flag, with `-resume`, reuses the download and the edited samplesheet.
+- **BUSCO completeness floor in the genome size gate.** `RECHECK_GENOME_SIZE` now reads
+  the BUSCO short summary and flags `assembly_lacks_host_gene_space` below
+  `--genomescope_min_busco_complete` (10). OG3080 was graded EXCELLENT on an 8.9 Mb
+  assembly at C:0.0%: its 15.5 Mb estimate agreed with that assembly (ratio 1.74), and with
+  too few Complete BUSCOs to measure read depth none of the depth checks could fire. 10
+  sits in the gap NOVA_260909_LA's EXCELLENT samples left between 9.2% and 19.9%. Replayed
+  over all 79 re-run samples it changes three verdicts, OG3080, OG3027 (3.9%) and OG3029
+  (9.2%), and adds the flag to 30 samples already unreliable.
+- **Host partition confidence.** The partition is keyed on depth over the Complete BUSCOs
+  that were found, and with few of them they are found where the assembly is best
+  covered. OG2942's 60 regions put the anchor at 27.4x while 80% of its assembly formed one
+  mode near 6x, so the "host" came out as 190 of 1,458 Mb. `kmer_depth_lambda.py` now
+  reports the assembly's own depth mode, `anchor_over_mode`, and `partition_confidence`
+  with a `partition_note`; a low-confidence partition is no longer the cross-check's
+  denominator. Where the anchor is off a dominant mode the re-centred size is reported as
+  `host_assembly_size_mode_anchored` (OG2942: 1,165 Mb; OG2948: 414 Mb against
+  GenomeScope's 410). New `--host_depth_min_regions` (50), a noise guard only: the mode
+  test is what caught every partition known to be wrong, and a floor of 200 marked sound
+  ones low without catching anything more.
+- **Haplotype-aware host size.** Contigs in the lower part of the host band
+  (below 0.75x host depth) are haplotype-split loci where heterozygosity is high, and
+  `host_assembly_size` counted each twice: OG3074 (2.57% het) gave 494 Mb against
+  GenomeScope's 338. New `host_collapsed_size`, `host_haplotig_size` and
+  `host_haploid_size` (collapsed + haplotig / 2), which is now the cross-check denominator.
+  On the eleven trusted fits it lands within a median 6.5% of GenomeScope against 11% for
+  the collapsed band alone (OG3074 now 428 Mb). Two new `draft_genomes` columns,
+  `host_haploid_size` and `partition_confidence`.
+
 - MEGAHIT checkpoints are fingerprinted on their inputs. The checkpoint directory under
   `${params.outdir}/megahit_checkpoints` exists so a killed assembly can resume, which
   puts it outside Nextflow's caching; it was keyed on the sample prefix alone, so a
@@ -153,6 +184,10 @@ Generalised from "fish + corals" to all invertebrates.
 
 ### `Changed`
 
+- Backup scripts point at the `ocom.oceangenomes` S3 bucket. The buckets were recreated with
+  dotted names and `ocom-oceangenomes` no longer exists.
+- `nextflow_run_template.sh` sets `MITO_PIPELINE_DIR` to the
+  `/software/projects/pawsey1348/$USER/repos/` checkout of the mitogenome pipeline.
 - **`--kmer_depth_max_ratio` lowered from 2.0 to 1.5.** 2.0 is the worst possible place for
   that boundary: fitting the homozygous peak as heterozygous or the reverse is
   GenomeScope's characteristic failure, so a threshold at exactly 2.0 sits on top of the
@@ -226,6 +261,71 @@ Generalised from "fish + corals" to all invertebrates.
 - `scripts/taxonomy/load_anthozoa_taxonomy.py` renamed to `scripts/taxonomy/load_taxonomy.py`.
 
 ### `Fixed`
+
+- **`coverage_summary/genome_coverage_summary.csv` now carries the final verdicts.**
+  `COMPILE_JSON_TO_CSV` ran inside `GENOME_ASSEMBLY` on the provisional summaries, before
+  `RECHECK_GENOME_SIZE`, so every row read `"assembly_cross_check": "pending"` and none of the
+  assembly, read-depth or BUSCO checks reached the run-level table or its MultiQC section. It
+  now runs in the main workflow on the final summaries (the provisional ones only when QC is
+  skipped with nothing precomputed), and the MultiQC table gains an Assembly Cross-check column.
+  It also now runs on `--skip_genome_assembly` launches, where it previously never ran.
+- `nextflow run main.nf --help` failed with "Unknown config attribute `params.run`" unless
+  `--run` and `--outdir` were given, because the path defaults in `nextflow.config` read them
+  before they were declared. Both are now declared at the top of the params block.
+- `check_files/01_checkfiles.sh` misaligned its report. Globs were expanded into the expected
+  list, so a pattern matching two files (`coverage/*.json`, since `_kmer_depth.json` was added)
+  added a row for that sample alone and every row below it sat against the wrong label in the
+  static `file_list.tsv`. Each pattern is now one row whatever it matches, the labels are
+  generated from the same list (`file_list.tsv` removed), and it checks kraken2, the depth
+  summary, the reseed decision, SeqKit, the MEGAHIT checkpoint status and the per-sample
+  MultiQC report the final backup uploads.
+- `01_final_genome_backup.sh` charged `pawsey0812`; it now uses `pawsey0964` like the raw backup
+  and the pipeline's jobs. The `CREATE_SAMPLESHEET` comment in `conf/modules.config` no longer
+  claims the script exits 1 on unresolved taxonomy.
+- **A GenomeScope refit that wins is now the fit the pipeline uses.** GENOMESCOPE_RESEED
+  decided and published the refit, and then every step after it carried on with the
+  original: NOVA_260909_LA's OG2628, OG2949 and OG3057 reached the database at 232, 1,113
+  and 1,858 Mb against refits of 322, 300 and 992 Mb. The module now emits a `chosen` fit
+  (the refit where it won, the original otherwise), and PUSH_ASSEMBLY_RESULTS, GFASTATS (the
+  expected size behind NG50/LG50/auNG) and RECHECK_GENOME_SIZE use it. Where the refit won,
+  the recheck re-runs the k-mer gate on it and recomputes the theoretical coverage before
+  the assembly and read-depth checks, so the verdict describes the uploaded fit: OG3057 had
+  stayed flagged `fitted_coverage_disagrees_with_read_depth` for the original's kmercov of
+  10.2, which the refit had replaced with 16.7 against a measured 16.6. Winning the reseed
+  does not exempt a refit from the gate. The coverage summary records `genomescope_fit`. A
+  push-only run (assembly and QC skipped) uploads the published refit where one exists.
+  The refit's GenomeScope name prefix is now the sample prefix rather than `reseed`, which
+  named no sample, and `parse_genomescope` falls back to the input file line for refits
+  published before that.
+
+- **`backfill_draft_genome_stats.py` no longer refuses samples over files that are not
+  theirs to choose.** The GenomeScope glob matched GENOMESCOPE_RESEED's
+  `*_genomescope2_reseeded_summary.txt`, which parses to no OG ID, so OG2628, OG2949 and
+  OG3057 failed as malformed; it is now preferred where present, since it is published only
+  when the refit won and the pipeline now uploads that fit (below). A sample re-scored against a new BUSCO lineage keeps the old lineage's
+  files, which made 31 of NOVA_260909_LA's 80 ambiguous; the manifest takes an optional
+  `busco_lineage` column (dataset name or four-letter tag) that picks one, with no fallback
+  to another lineage when the named one is absent. Validation over NOVA_260909_LA goes
+  from 47 to 80 of 80.
+
+- **Skip-assembly runs recompute the provisional coverage summary.** With
+  `--skip_genome_assembly` and QC enabled, `CALCULATE_SEQUENCING_COVERAGE` now runs on the
+  published fastp JSON and GenomeScope summary, model and histogram instead of reading back
+  the published `*_coverage_summary.json`, which the recheck only adds to. NOVA_260909_LA's
+  16 skip-tier samples kept a September parse: OG2653's GenomeScope "-1 bp" was read as a
+  1 bp genome (18,007,370,181x), OG2647's "Inf bp" bound as 35.8 Mb, and 9 of 16 lacked the
+  current k-mer flags. With QC skipped the published summary is still carried forward, as
+  it is the final verdict. The precomputed GenomeScope globs now exclude
+  `*_reseeded_*` files, which keyed to the same sample as the original fit (OG2628, OG2949,
+  OG3057).
+- **`RECHECK_GENOME_SIZE` rejects a genome size of 1 bp or less** as
+  `no_genome_size_estimate` and zeroes the coverage figures derived from it.
+- **`*_sequencing_coverage.txt` is rewritten by `RECHECK_GENOME_SIZE`.** It was written only
+  by the provisional step, so the recheck's flags never reached it: in 8 NOVA_260909_LA
+  samples the text said EXCELLENT beside a JSON marked unreliable, and OG2617's said
+  "reliable: yes". Both steps now render it from the summary JSON with
+  `genomescope_reliability.py --render-report`, and it states whether the verdict is
+  provisional or final.
 
 - **GFASTATS died on a collapsed GenomeScope fit.** OG2653's model returned `-1` for every
   property at Model Fit 0%; the module parsed that `-1` out of the summary and passed it as
@@ -383,6 +483,24 @@ Generalised from "fish + corals" to all invertebrates.
   `--tax-id unknown` and failed only after MEGAHIT had already burned the SUs.
 - Genome QC aborts on a sample with an `unknown` or empty class rather than guessing a
   BUSCO lineage for it.
+
+### `Documentation`
+
+- `docs/output.md` rebuilt from the publish rules and a real run: adds kraken2, SeqKit,
+  per-sample MultiQC, the GenomeScope reseed files, `_kmer_depth.json`, `megahit_checkpoints/`,
+  `push/` receipts, the mitogenome launcher and compute cost files, corrects the decontamination
+  file chain.
+- `docs/usage.md`: pawsey1348 paths, the full BUSCO lineage table including the four invertebrate
+  lineages, reference data, kraken2, FCS/Tiara, genome size check thresholds, skipping stages and
+  the `precomputed_*` globs, `--report_subdir`, `--stop_after_samplesheet`, the mitogenome hand-off
+  and compute cost.
+- `docs/internal_sop.md`: current paths, the `--skip_bs_download` typo, the mitogenome step, and
+  that the Acacia move leaves `fastp/` on scratch.
+- README rewritten for the current pipeline; new READMEs for `compute-audit/`,
+  `scripts/backup_scripts/`, `scripts/taxonomy/` and `tests/`.
+- CITATIONS: added Kraken 2, KrakenTools, SeqKit and NCBI Taxonomy; corrected the gfastats
+  reference, which had the wrong authors and DOI.
+- `nextflow_schema.json`: declared `interleave`; `tempdir` and `pooled` described as unused.
 
 ## v1.1.0 - 2026-08-21
 

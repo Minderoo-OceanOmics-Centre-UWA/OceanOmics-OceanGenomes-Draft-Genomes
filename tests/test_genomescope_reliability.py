@@ -445,3 +445,269 @@ class ReseedPlanTests(unittest.TestCase):
             self.plan({"genome_size_reliable": False},
                       {"lambda_depth": 3.8, "kmercov_over_lambda_depth": 7.6}),
             "skip")
+
+
+class BuscoFloorTests(unittest.TestCase):
+    """The gene-space floor. A size estimate that agrees with an assembly says nothing
+    about the host when the assembly is not the host's."""
+
+    def base(self):
+        return {"estimated_genome_size": 15_546_537, "genome_size_flags": "",
+                "genome_size_reliable": True, "coverage_status": "EXCELLENT"}
+
+    def test_a_failed_assembly_that_matches_its_estimate_is_flagged(self):
+        # OG3080: 15.5 Mb estimate, 8.9 Mb assembly (ratio 1.74, inside the band), C:0.0%,
+        # too few Complete BUSCOs for any depth measurement. Graded EXCELLENT before.
+        merged = gate.recheck_against_assembly(
+            self.base(), 8_914_437, None,
+            {"status": "too_few_busco_regions", "partition_status": "no_contig_depth"},
+            busco_complete=0.0)
+        self.assertEqual(merged["genome_size_flags"], "assembly_lacks_host_gene_space")
+        self.assertEqual(merged["coverage_status"], "UNRELIABLE_GENOME_SIZE_ESTIMATE")
+        self.assertEqual(merged["busco_complete"], 0.0)
+
+    def test_the_floor_is_inclusive(self):
+        at = gate.recheck_against_assembly(self.base(), 15_000_000, None, None, 10.0)
+        below = gate.recheck_against_assembly(self.base(), 15_000_000, None, None, 9.9)
+        self.assertTrue(at["genome_size_reliable"])
+        self.assertIn("assembly_lacks_host_gene_space", below["genome_size_flags"])
+
+    def test_no_busco_result_is_not_a_failure(self):
+        merged = gate.recheck_against_assembly(self.base(), 15_000_000, None, None, None)
+        self.assertTrue(merged["genome_size_reliable"])
+        self.assertIsNone(merged["busco_complete"])
+
+    def test_completeness_is_read_from_the_short_summary_json(self):
+        path = write(json.dumps({"results": {
+            "one_line_summary": "C:0.9%[S:0.7%,D:0.1%],F:4.2%,M:94.9%,n:672",
+            "Complete percentage": 0.9}}), suffix=".json")
+        self.assertEqual(gate.busco_complete_from_summary(path), 0.9)
+
+    def test_falls_back_to_the_one_line_summary(self):
+        path = write(json.dumps({"results": {"one_line_summary": "C:73.8%[S:72.0%,D:1.8%]"}}),
+                     suffix=".json")
+        self.assertEqual(gate.busco_complete_from_summary(path), 73.8)
+
+    def test_an_unreadable_summary_is_none(self):
+        self.assertIsNone(gate.busco_complete_from_summary("/nonexistent/summary.json"))
+
+    def test_cli_flags_from_the_summary_file(self):
+        import contextlib
+        import io
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "cov.json").write_text(json.dumps(self.base()))
+            (root / "seqkit.tsv").write_text(
+                "file\tformat\ttype\tnum_seqs\tsum_len\nx.fa\tFASTA\tDNA\t13692\t8914437\n")
+            (root / "busco.json").write_text(json.dumps({"results": {"Complete percentage": 0.0}}))
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                gate.main(["--recheck-assembly", "--coverage-json", str(root / "cov.json"),
+                           "--seqkit-stats", str(root / "seqkit.tsv"),
+                           "--busco-summary", str(root / "busco.json")])
+        merged = json.loads(buffer.getvalue())
+        self.assertIn("assembly_lacks_host_gene_space", merged["genome_size_flags"])
+
+
+class PartitionConfidenceGateTests(unittest.TestCase):
+    """Which host size the ratio is taken against, now that a partition can say it is
+    not to be trusted."""
+
+    def base(self, size):
+        return {"estimated_genome_size": size, "genome_size_flags": "",
+                "genome_size_reliable": True, "coverage_status": "EXCELLENT"}
+
+    def test_a_low_confidence_partition_falls_back_to_the_total_assembly(self):
+        # OG2942: 60 BUSCO regions, anchor 4.4x the assembly's depth mode, "host" 190 of
+        # 1,458 Mb.
+        merged = gate.recheck_against_assembly(
+            self.base(114_000_000), 1_457_700_000, None,
+            {"partition_status": "ok", "host_assembly_size": 190_223_452,
+             "host_haploid_size": 147_000_000, "partition_confidence": "low",
+             "partition_note": "anchor_off_mode",
+             "host_assembly_size_mode_anchored": 1_165_000_000})
+        self.assertEqual(merged["assembly_ratio_basis"], "total")
+        self.assertEqual(merged["assembly_ratio_denominator"], 1_457_700_000)
+        self.assertEqual(merged["partition_note"], "anchor_off_mode")
+        self.assertEqual(merged["host_assembly_size_mode_anchored"], 1_165_000_000)
+
+    def test_the_haploid_host_size_is_the_denominator_when_present(self):
+        # OG3074: 494 Mb counting both haplotypes of split loci, 428 Mb counting them once.
+        merged = gate.recheck_against_assembly(
+            self.base(338_000_000), 567_000_000, None,
+            {"partition_status": "ok", "host_assembly_size": 493_804_448,
+             "host_haploid_size": 428_000_000, "partition_confidence": "high"})
+        self.assertEqual(merged["assembly_ratio_basis"], "host")
+        self.assertEqual(merged["assembly_ratio_denominator"], 428_000_000)
+        self.assertTrue(merged["genome_size_reliable"])
+
+    def test_a_partition_from_before_confidence_existed_is_trusted_as_before(self):
+        merged = gate.recheck_against_assembly(
+            self.base(103_500_000), 328_000_000, None,
+            {"partition_status": "ok", "host_assembly_size": 207_000_000})
+        self.assertEqual(merged["assembly_ratio_basis"], "host")
+        self.assertEqual(merged["assembly_ratio_denominator"], 207_000_000)
+
+
+class StaleSizeTests(unittest.TestCase):
+    """A provisional summary from an older parse can reach the recheck as a precomputed
+    input. GenomeScope's failure value is "-1 bp", which that parser read as 1 bp."""
+
+    def test_a_one_bp_genome_is_no_estimate(self):
+        # OG2653 as published: 1 bp, 18,007,370,181x, flagged only for disagreeing with
+        # the assembly.
+        coverage = {"estimated_genome_size": 1, "genome_size_flags": "",
+                    "genome_size_reliable": True, "coverage_status": "EXCELLENT",
+                    "theoretical_coverage": 18007370181.0, "coverage_before_filtering": 2e10}
+        merged = gate.recheck_against_assembly(coverage, 185_000_000)
+        self.assertEqual(merged["genome_size_flags"], "no_genome_size_estimate")
+        self.assertEqual(merged["estimated_genome_size"], 0)
+        self.assertEqual(merged["theoretical_coverage"], 0)
+        self.assertEqual(merged["coverage_before_filtering"], 0)
+        self.assertEqual(merged["coverage_status"], "UNRELIABLE_GENOME_SIZE_ESTIMATE")
+
+    def test_a_non_finite_size_keeps_its_own_flag(self):
+        coverage = {"estimated_genome_size": 0, "genome_size_flags": "non_finite_genome_size",
+                    "genome_size_reliable": False}
+        merged = gate.recheck_against_assembly(coverage, 185_000_000)
+        self.assertEqual(merged["genome_size_flags"], "non_finite_genome_size")
+
+    def test_the_current_parser_reads_minus_one_as_a_failure(self):
+        parsed = gate.parse_summary(write(summary(haploid="-1|-1")))
+        flags, details = gate.evaluate(parsed, {})
+        self.assertIn("no_genome_size_estimate", flags)
+
+
+class TextReportTests(unittest.TestCase):
+    """The text report is rendered from the summary, so it cannot disagree with it."""
+
+    def provisional(self):
+        return {"sample_id": "OG2617", "estimated_genome_size": 363_338_117,
+                "genome_size_min": 351_373_409, "genome_size_max": 363_338_117,
+                "model_fit_allkmers": 48.4, "model_fit_full": 83.5,
+                "heterozygosity_min": 3.9, "heterozygosity_max": 12.4,
+                "total_reads_after_filtering": 163_999_458,
+                "total_bases_after_filtering": 24_362_957_504,
+                "theoretical_coverage": 67.05, "coverage_before_filtering": 77.8,
+                "data_retention_percent": 86.2, "kmer_peak_coverage": 13, "kmercov": 17.92,
+                "genome_size_reliable": True, "genome_size_flags": "",
+                "coverage_status": "EXCELLENT",
+                "coverage_recommendation": "Suitable for high-quality genome assembly.",
+                "assembly_cross_check": "pending"}
+
+    def test_provisional_is_labelled(self):
+        text = gate.render_text_report(self.provisional())
+        self.assertIn("PROVISIONAL", text)
+        self.assertIn("Status: EXCELLENT coverage (67.0x)", text)
+        self.assertNotIn("ASSEMBLY CROSS-CHECK", text)
+
+    def test_rechecked_report_follows_the_flags(self):
+        # OG2617: k-mer checks passed, then the read-depth check flagged it. The old text
+        # file still said "reliable: yes / EXCELLENT".
+        merged = gate.recheck_against_assembly(
+            self.provisional(), 829_293_888, None,
+            {"lambda_depth": 9.17, "partition_status": "ok",
+             "host_assembly_size": 709_148_311, "host_assembly_fraction": 0.855})
+        text = gate.render_text_report(merged)
+        self.assertIn("final (assembly cross-check done)", text)
+        self.assertIn("Genome size estimate reliable: no", text)
+        self.assertIn("fitted_coverage_disagrees_with_read_depth", text)
+        self.assertIn("UNRELIABLE_GENOME_SIZE_ESTIMATE (theoretical coverage 67.0x, not trustworthy)", text)
+        self.assertNotIn("EXCELLENT", text)
+        self.assertIn("Host fraction of assembly (lower bound): 85.5%", text)
+
+    def test_renders_a_summary_with_fields_missing(self):
+        text = gate.render_text_report({"sample_id": "X", "assembly_cross_check": "done"})
+        self.assertIn("Estimated genome size: none", text)
+
+    def test_cli_renders_from_a_file(self):
+        import contextlib
+        import io
+        path = write(json.dumps(self.provisional()), suffix=".json")
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            gate.main(["--render-report", path])
+        self.assertEqual(buffer.getvalue(), gate.render_text_report(self.provisional()))
+
+
+class ReseededFitTests(unittest.TestCase):
+    """Where the refit won, the verdict has to describe the refit, not the fit it replaced."""
+
+    def provisional(self):
+        # OG3057's original fit: 1,858 Mb at kmercov 10.2, flagged at the k-mer stage.
+        return {"sample_id": "OG3057", "estimated_genome_size": 1_858_105_218,
+                "genome_size_min": 1_858_105_218, "genome_size_max": 1_858_105_218,
+                "kmercov": 10.2, "genome_size_flags": "degenerate_model_fit; implausible_model_bias",
+                "genome_size_reliable": False, "coverage_status": "UNRELIABLE_GENOME_SIZE_ESTIMATE",
+                "total_bases_after_filtering": 30_000_000_000, "data_retention_percent": 80.0,
+                "theoretical_coverage": 16.1, "assembly_cross_check": "pending"}
+
+    def refit(self):
+        # The refit that won: 992 Mb at kmercov 16.7, against a measured 16.6.
+        return (gate.parse_summary(write(summary(haploid="991,669,221|991,669,221",
+                                                 fit=("60.0", "97.6")))),
+                {"kmercov": 16.7, "bias": 1.2}, peaked_histogram(kmercov=17))
+
+    def test_refit_replaces_the_fit_fields(self):
+        merged = gate.apply_reseeded_fit(self.provisional(), *self.refit())
+        self.assertEqual(merged["genomescope_fit"], "reseeded")
+        self.assertEqual(merged["estimated_genome_size"], 991_669_221)
+        self.assertEqual(merged["kmercov"], 16.7)
+        self.assertEqual(merged["fitted_kmer_coverage"], 16.7)
+        self.assertEqual(merged["model_fit_full"], 97.6)
+        self.assertEqual(merged["genome_size_flags"], "")
+        self.assertAlmostEqual(merged["theoretical_coverage"], 30_000_000_000 / 991_669_221)
+        self.assertAlmostEqual(merged["coverage_before_filtering"], 37_500_000_000 / 991_669_221)
+        self.assertEqual(merged["coverage_status"], "GOOD")
+
+    def test_read_depth_check_is_against_the_refit(self):
+        kmer_depth = {"lambda_depth": 16.6}
+        original = gate.recheck_against_assembly(self.provisional(), 1_361_000_000, None, kmer_depth)
+        self.assertIn("fitted_coverage_disagrees_with_read_depth", original["genome_size_flags"])
+        refit = gate.recheck_against_assembly(
+            gate.apply_reseeded_fit(self.provisional(), *self.refit()), 1_361_000_000, None, kmer_depth)
+        self.assertNotIn("fitted_coverage_disagrees_with_read_depth", refit["genome_size_flags"])
+        self.assertTrue(refit["genome_size_reliable"])
+        self.assertEqual(refit["genomescope_fit"], "reseeded")
+
+    def test_winning_the_reseed_does_not_bypass_the_gate(self):
+        parsed = gate.parse_summary(write(summary(haploid="991,669,221|991,669,221",
+                                                  het=("0", "4.1"))))
+        merged = gate.apply_reseeded_fit(self.provisional(), parsed, {"kmercov": 16.7, "bias": 9.0},
+                                         peaked_histogram(kmercov=17))
+        self.assertFalse(merged["genome_size_reliable"])
+        self.assertIn("degenerate_model_fit", merged["genome_size_flags"])
+        self.assertIn("implausible_model_bias", merged["genome_size_flags"])
+
+    def run_cli(self, winner):
+        import contextlib
+        import io
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "cov.json").write_text(json.dumps(self.provisional()))
+            (root / "seqkit.tsv").write_text(
+                "file\tformat\ttype\tnum_seqs\tsum_len\nx.fa\tFASTA\tDNA\t838185\t1361000000\n")
+            (root / "decision.json").write_text(json.dumps({"winner": winner}))
+            (root / "chosen_summary.txt").write_text(summary(haploid="991,669,221|991,669,221",
+                                                             fit=("60.0", "97.6")))
+            (root / "chosen_model.txt").write_text("kmercov 1.670e+01 1.0 1.0 0.1\nbias 1.2 0.1 1 0.1\n")
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                gate.main(["--recheck-assembly", "--coverage-json", str(root / "cov.json"),
+                           "--seqkit-stats", str(root / "seqkit.tsv"),
+                           "--reseed-decision", str(root / "decision.json"),
+                           "--chosen-summary", str(root / "chosen_summary.txt"),
+                           "--chosen-model", str(root / "chosen_model.txt")])
+        return json.loads(buffer.getvalue())
+
+    def test_cli_applies_a_winning_refit(self):
+        merged = self.run_cli("reseeded")
+        self.assertEqual(merged["genomescope_fit"], "reseeded")
+        self.assertEqual(merged["estimated_genome_size"], 991_669_221)
+        self.assertIn("Fit: reseeded", gate.render_text_report(merged))
+
+    def test_cli_leaves_the_original_alone(self):
+        merged = self.run_cli("original")
+        self.assertEqual(merged["genomescope_fit"], "original")
+        self.assertEqual(merged["estimated_genome_size"], 1_858_105_218)
+        self.assertEqual(merged["kmercov"], 10.2)

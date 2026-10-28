@@ -49,6 +49,7 @@ columns = [
     ("kmer_peak_coverage", "K-mer Peak (x)"),
     ("genome_size_reliable", "Size Est. OK"),
     ("coverage_status", "Status"),
+    ("assembly_cross_check", "Assembly Cross-check"),
 ]
 
 def fmt_value(key, value):
@@ -61,7 +62,7 @@ def fmt_value(key, value):
             return str(value)
     if key == "sample_id":
         return str(value)
-    if key in ("coverage_status", "genome_size_reliable"):
+    if key in ("coverage_status", "genome_size_reliable", "assembly_cross_check"):
         return str(value)
     try:
         return f"{float(value):.2f}"

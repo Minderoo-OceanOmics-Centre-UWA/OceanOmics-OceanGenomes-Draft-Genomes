@@ -1,51 +1,56 @@
 # OceanGenomes Draft Genome Pipeline SOP
 
-This SOP describes the standard internal workflow for running OceanGenomes short-read draft genome assemblies on Pawsey using `nextflow_run_template.sh`.
+This SOP describes the standard internal workflow for running OceanGenomes short-read draft genome
+assemblies on Pawsey (Setonix) using `nextflow_run_template.sh`. Parameter details are in
+[usage](usage.md) and output files in [output](output.md).
 
-## 1. Prepare the repository
+## 1. Prepare the repositories
 
-Clone or update the draft genome pipeline repository on scratch:
+The pipeline and the mitogenome pipeline are kept side by side under `/software`:
 
 ```bash
-cd /scratch/pawsey1348/$USER/agent
+cd /software/projects/pawsey1348/$USER/repos
 git clone https://github.com/Minderoo-OceanOmics-Centre-UWA/OceanOmics-OceanGenomes-Draft-Genomes.git
-cd OceanOmics-OceanGenomes-Draft-Genomes
 ```
 
 For an existing checkout:
 
 ```bash
-cd /scratch/pawsey1348/$USER/_NFCORE/OceanOmics-OceanGenomes-Draft-Genomes
+cd /software/projects/pawsey1348/$USER/repos/OceanOmics-OceanGenomes-Draft-Genomes
 git pull
 ```
 
-The run template assumes the mitogenome pipeline is available at:
+The run template expects the mitogenome pipeline at:
 
 ```bash
-/scratch/pawsey0964/$USER/_NFCORE/Oceanomics-OceanGenomes-Mitogenomes
+/software/projects/pawsey1348/$USER/repos/Oceanomics-OceanGenomes-Mitogenomes
 ```
 
-If your clone is somewhere else, update `--mitogenome_nfcore_dir` in the copied run script before launching.
-If you havent cloned the mitogenome pipeline, clone it so that the run script will automatically be generated from the draft genome pipeline to run on the samples from this run.
+If your clone is elsewhere, change `MITO_PIPELINE_DIR` in the copied run script. The directory must
+contain `nextflow_run.sh`, or the run fails at start. The draft pipeline uses it to write a ready-made
+mitogenome launcher for this run (section 4).
 
 ## 2. Create a run-specific launcher
 
 Set the BaseSpace run ID and copy the template to a run-specific script:
 
 ```bash
-RUN=NEXT_250724_ET
+RUN=NOVA_260925_LA
 cp nextflow_run_template.sh "nextflow_run_${RUN}.sh"
 sed -i "s/^RUN=.*/RUN=${RUN}/" "nextflow_run_${RUN}.sh"
 ```
 
-Review `nextflow_run_${RUN}.sh` before starting. The template is set up for standard OceanGenomes runs and will:
+Review `nextflow_run_${RUN}.sh` before starting. It will:
 
-- load Nextflow and Singularity modules
-- create `/scratch/pawsey0964/$USER/$RUN`
-- copy `scripts/backup_scripts` into the run directory
-- update the copied `backup_scripts/configfile.txt` with the selected `RUN`
-- run Nextflow from the run output directory (this is what the run script does, you need to launch the run script from the cloned repo directory)
-- keep work files under `/scratch/pawsey0964/$USER/$RUN/work/$RUN`
+- load the Nextflow and Singularity modules
+- create the run directory `/scratch/pawsey1348/$USER/$RUN`
+- copy `scripts/backup_scripts` into it and set `RUN` in the copied `backup_scripts/configfile.txt`
+- change into the run directory and launch from there, with work files under
+  `/scratch/pawsey1348/$USER/$RUN/work/$RUN`
+- after the run, write per-sample compute cost to `pipeline_info/cost_per_sample.csv`
+
+The script must be started from the repository directory (it uses relative paths to copy the backup
+scripts and find `main.nf`).
 
 ## 3. Run the pipeline
 
@@ -56,116 +61,115 @@ tmux new -s "$RUN"
 bash "nextflow_run_${RUN}.sh"
 ```
 
-To detach from `tmux`, press `Ctrl-b` then `d`. To reattach:
+To detach, press `Ctrl-b` then `d`. To reattach: `tmux attach -t "$RUN"`.
+
+Run directory and generated samplesheet:
 
 ```bash
-tmux attach -t "$RUN"
+/scratch/pawsey1348/$USER/$RUN
+/scratch/pawsey1348/$USER/$RUN/samplesheet/${RUN}_samplesheet.csv
 ```
 
-The run output directory is:
+Optional: to check the samplesheet before spending SUs on assembly, add
+`--stop_after_samplesheet true` to the first launch. Review (and if needed trim) the samplesheet,
+then remove the flag and launch again; `-resume` reuses the download and the edited sheet.
+
+If the run stops because a sample's taxonomy could not be resolved, see
+[usage: when a sample's class is unknown](usage.md#when-a-samples-class-is-unknown).
+
+## 4. Mitogenomes
+
+Once fastp has finished, the pipeline writes
+`run_${RUN}_mitogenomes_<timestamp>.sh` into the mitogenome pipeline directory. It is not started
+automatically. Launch it from that directory (in its own `tmux` session) when ready:
 
 ```bash
-/scratch/pawsey0964/$USER/$RUN
+cd /software/projects/pawsey1348/$USER/repos/Oceanomics-OceanGenomes-Mitogenomes
+bash run_${RUN}_mitogenomes_<timestamp>.sh
 ```
 
-The automatically generated samplesheet is written under:
+## 5. Rerun using the generated samplesheet
 
-```bash
-/scratch/pawsey0964/$USER/$RUN/samplesheet/${RUN}_samplesheet.csv
-```
+After the first BaseSpace download run, you can rerun from the generated samplesheet instead of
+downloading reads again. In `nextflow_run_${RUN}.sh`:
 
-## 4. Rerun using the generated samplesheet
-
-After the first BaseSpace download run, you can rerun from the generated samplesheet instead of downloading reads again.
-
-In `nextflow_run_${RUN}.sh`:
-
-- set `--skip_skip_bs_download true`
+- set `--skip_bs_download true`
 - set `--skip_download_reads true`
 - uncomment the `--input "$OUT/samplesheet/${RUN}_samplesheet.csv"` line at the end of the command
 
 Keep `--run "$RUN"` so output naming and metadata remain tied to the same sequencing run.
 
-## 5. Raw data backup
+## 6. Raw data backup
 
-Raw data backup is run after BaseSpace download has completed and the raw data are present under:
-
-```bash
-/scratch/pawsey0964/$USER/$RUN/basespace/$RUN
-```
-
-The template copies backup scripts into the run directory, so run backups from the copied scripts:
+Run the raw backup once the BaseSpace download is complete and the raw data are under
+`/scratch/pawsey1348/$USER/$RUN/basespace/$RUN`. Use the copies in the run directory:
 
 ```bash
-cd /scratch/pawsey0964/$USER/$RUN/backup_scripts/raw_data_backup_aws
+cd /scratch/pawsey1348/$USER/$RUN/backup_scripts/raw_data_backup_aws
 sbatch 01_aws_raw_backup.sh
 ```
-Alternatively the backup can be ran in a tmux session.
 
+This can also be run in a `tmux` session.
 
-`01_aws_raw_backup.sh` copies the raw BaseSpace download to:
+`01_aws_raw_backup.sh` copies the raw BaseSpace download to `s3:ocom.oceangenomes/illumina-raw/$RUN`,
+then runs `02_data_audit.sh`, which compares local and S3 file counts and sizes. Check the joined
+audit file `_draftRAWcheck-join.$RUN.TSV`.
 
-```bash
-s3:oceanomics/OceanGenomes/illumina-raw/$RUN
-```
+There is no separate FASTQ/FastQC backup step.
 
-It then runs `02_data_audit.sh`, which compares local and S3 file counts/sizes and writes audit TSVs in the backup working directory. Check the joined audit file:
+## 7. Check expected output files
 
-```bash
-_draftRAWcheck-join.$RUN.TSV
-```
-
-There is no separate fastq/FastQC backup step. The old FastQ backup scripts are no longer used.
-
-## 6. Check expected output files
-
-When the pipeline has completed, check that expected files are present before final backup:
+When the pipeline has completed, check that expected files are present before the final backup:
 
 ```bash
-cd /scratch/pawsey0964/$USER/$RUN/backup_scripts/check_files
+cd /scratch/pawsey1348/$USER/$RUN/backup_scripts/check_files
 bash 01_checkfiles.sh
 ```
 
-This writes:
+`_FileCheck.tsv` has one row per expected file (`<OG>` standing for the sample ID) and one column per
+sample, each cell `Found <path>` or `Missing`. The script also prints how many rows have a missing
+file. Review the missing rows; if important outputs are missing, rerun the affected samples or steps
+before the final backup. `kraken2/` rows are expected to be missing for runs launched with
+`--skip_kraken2_decontamination`.
 
-```bash
-_FileCheck.tsv
-```
-
-Review `_FileCheck.tsv` for missing files. If important outputs are missing, rerun the affected samples or steps before final backup.
-
-## 7. Final genome backup
+## 8. Final genome backup
 
 Run the final backup after the pipeline is complete and output checks have passed:
 
 ```bash
-cd /scratch/pawsey0964/$USER/$RUN/backup_scripts/finall_all_data_backup_acacia
+cd /scratch/pawsey1348/$USER/$RUN/backup_scripts/finall_all_data_backup_acacia
 sbatch 01_final_genome_backup.sh
 ```
-This can also be ran in a tmux session as an alternative.
 
+(The directory name really is spelled `finall_...`.) This can also be run in a `tmux` session.
 
 The final backup script:
 
-- copies selected final per-sample outputs to S3 under `s3:oceanomics/OceanGenomes/analysed-data/draft-genomes`
-- archives each `.meryl` directory to `.meryl.tar.gz` and removes the unarchived `.meryl` directory after verifying the archive
+- copies selected per-sample outputs to `s3:ocom.oceangenomes/analysed-data/draft-genomes/<OG>/`:
+  trimmed FASTQs and fastp JSON from `fastp/`, the final `.fna` assembly, and the per-sample MultiQC
+  HTML report
+- archives each `.meryl` directory to `.meryl.tar.gz` and removes the directory once the archive
+  verifies (if any archive fails, it stops before the move)
 - runs `02_data_audit_local.sh` to record the local subsets that should match Acacia and S3
-- moves the final `draftgenomes` directory to Acacia at `pawsey0964:oceanomics-draftgenomes/genomes.v2/`
-- runs `03_data_audit_acacia.sh` to compare the matching remote Acacia and S3 subsets
+- **moves** the `draftgenomes` directory, except every `fastp/` folder, to Acacia at
+  `pawsey0964:oceanomics-draftgenomes/genomes.v2/`
+- runs `03_data_audit_acacia.sh` to compare the remote Acacia and S3 copies with the local record
 
-Important: the Acacia transfer uses `rclone move`, not `rclone copy`. After the final backup completes successfully, the moved files are no longer retained in the local `draftgenomes` directory.
-
-Check the joined final audit files:
+Because the Acacia transfer uses `rclone move`, everything except `fastp/` is gone from the local
+`draftgenomes` directory once it succeeds. The `fastp/` folders (trimmed reads, already on S3) stay on
+scratch and can be deleted once the audits pass and the mitogenome run no longer needs them.
+Check the joined audit files:
 
 ```bash
 _draftcheck-workflow-acacia-join.$RUN.tsv
 _draftcheck-workflow-s3-join.$RUN.tsv
 ```
 
-The Acacia audit compares the local final workflow subset excluding `fastp/`, because `fastp/` is not moved to Acacia. The S3 audit compares only the selected files copied to S3: trimmed FASTQs, `fastp` JSON files, final `.fna` assemblies, and MultiQC HTML reports.
+The Acacia audit compares the local workflow subset excluding `fastp/`. The S3 audit compares only the
+files copied to S3. Both files have `ObjectCountMatch` and `ByteCountMatch` columns, which should be
+`YES` for every sample before the backup is treated as complete.
 
-Both joined audit files include `ObjectCountMatch` and `ByteCountMatch` columns. These should be `YES` for every sample before the backup is treated as complete.
+## 9. Run records
 
-## 8. Run records
-
-For each run, make sure to upload the complete multiqc report for the run onto labarchives. The link to the location should be included in the asana card for this task.
+Upload the run's complete MultiQC report (`multiqc/multiqc_report.html`) to LabArchives and put the
+link in the Asana card for the run.

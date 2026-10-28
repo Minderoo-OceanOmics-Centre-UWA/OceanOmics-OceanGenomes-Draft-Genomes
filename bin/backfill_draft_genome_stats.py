@@ -24,6 +24,7 @@ from draft_genome_stats import (
     parse_decontamination,
     parse_fastp,
     parse_coverage_summary,
+    parse_kmer_depth,
     parse_genomescope,
     parse_gfastats,
     upsert_record,
@@ -35,6 +36,7 @@ COMPONENTS: dict[str, tuple[str, Callable[[Path], dict[str, Any]]]] = {
     "fastp": ("**/*.fastp.json", parse_fastp),
     "genomescope": ("kmers/*genomescope/*summary.txt", parse_genomescope),
     "coverage_summary": ("coverage/*_coverage_summary.json", parse_coverage_summary),
+    "kmer_depth": ("coverage/*_kmer_depth.json", parse_kmer_depth),
     "tiara": ("assemblies/genome/tiara/*tiara_filter_summary.txt", lambda path: _parse_decontam_part(path, "tiara")),
     "filter_report": ("assemblies/genome/NCBI/*filter_report.txt", lambda path: _parse_decontam_part(path, "filter")),
     "contigs_lt500": ("assemblies/genome/NCBI/*contig_count_500bp.txt", lambda path: _parse_decontam_part(path, "contigs")),
@@ -44,17 +46,27 @@ COMPONENTS: dict[str, tuple[str, Callable[[Path], dict[str, Any]]]] = {
     "gfastats": ("assemblies/genome/gfastats/*assembly_summary*", parse_gfastats),
 }
 
+# Where a component has two files and one is preferred whenever it is present. GENOMESCOPE_RESEED
+# publishes its refit beside the original as *_genomescope2_reseeded_summary.txt, and only
+# when the refit won, so its presence is the decision. The pipeline uploads the fit it
+# chose, so the backfill takes the refit wherever one exists.
+COMPONENT_PREFERRED: dict[str, str] = {
+    "genomescope": "_reseeded_",
+}
+
 # Components a sample may legitimately lack. The coverage summary post-dates most of the
 # archive, and an older run having no reliability verdict is not a reason to refuse to
 # backfill the GenomeScope numbers that are there.
-OPTIONAL_COMPONENTS = {"coverage_summary"}
+OPTIONAL_COMPONENTS = {"coverage_summary", "kmer_depth"}
 
 # Columns that come only from an optional component, so a sample legitimately lacking that
 # component must not be failed for not producing them.
 # Columns that only exist when a coverage summary was published beside the sample, which
 # is not the case for archived runs predating the reliability gate.
 OPTIONAL_COLUMNS = {"genome_size_reliable", "genome_size_flags", "kmercov", "lambda_depth",
-                    "host_assembly_size", "host_assembly_fraction"}
+                    "host_assembly_size", "host_assembly_fraction",
+                    "host_haploid_size", "partition_confidence",
+                    "partition_note", "busco_regions", "busco_read_depth", "genomescope_fit"}
 
 INVENTORY_FIELDS = ("og_id", "seq_date", *COMPONENTS.keys(), "status", "details")
 UPLOAD_FIELDS = ("og_id", "seq_date", "status", "details")
@@ -88,7 +100,9 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument("--fastp-root", type=Path,
                         help="Optional mounted S3 draft-genomes root containing per-OG fastp directories; defaults to archive root")
     parser.add_argument("--manifest", required=True, type=Path,
-                        help="Tab-separated file with og_id and seq_date columns")
+                        help="Tab-separated file with og_id and seq_date columns, and an optional "
+                             "busco_lineage column (e.g. metazoa_odb12 or meta) naming the lineage "
+                             "to take where a sample has BUSCO results from more than one")
     parser.add_argument("--db-config", required=True, type=Path,
                         help="PostgreSQL key=value connection config")
     parser.add_argument("--report-dir", required=True, type=Path,
@@ -98,7 +112,14 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def read_manifest(path: Path) -> list[tuple[str, str]]:
+def busco_lineage_tag(lineage: str) -> str:
+    """The four-letter tag BUSCO output filenames carry, e.g. metazoa_odb12 -> "meta".
+    Same rule as buscoLineageTag() in the pipeline, so a manifest can name the dataset as
+    it appears in --busco_*_db or by its tag."""
+    return lineage.strip().rstrip("/").split("/")[-1][:4]
+
+
+def read_manifest(path: Path) -> list[tuple[str, str, Optional[str]]]:
     if not path.is_file():
         raise ValueError(f"manifest is not a readable file: {path}")
     with path.open(newline="", encoding="utf-8-sig") as handle:
@@ -120,15 +141,31 @@ def read_manifest(path: Path) -> list[tuple[str, str]]:
             if key in seen:
                 raise ValueError(f"manifest line {line_number}: duplicate target {og_id}/{seq_date}")
             seen.add(key)
-            targets.append(key)
+            lineage = (row.get("busco_lineage") or "").strip()
+            targets.append((og_id, seq_date, busco_lineage_tag(lineage) if lineage else None))
     if not targets:
         raise ValueError("manifest contains no samples")
     return targets
 
 
-def _select_component(sample: Sample, root: Path, component: str) -> None:
+def _select_component(sample: Sample, root: Path, component: str,
+                      busco_lineage: Optional[str] = None) -> None:
     pattern, parser = COMPONENTS[component]
     candidates = sorted(root.glob(pattern))
+    preferred = COMPONENT_PREFERRED.get(component)
+    if preferred and any(preferred in path.name for path in candidates):
+        candidates = [path for path in candidates if preferred in path.name]
+    # BUSCO scores are not comparable across lineages, and a sample re-scored against a new
+    # lineage keeps the old lineage's files beside the new ones (31 of NOVA_260909_LA's 80).
+    # With a lineage named, take only that one, and never fall back to a neighbour.
+    if component == "busco" and busco_lineage:
+        present = [path.name for path in candidates]
+        candidates = [path for path in candidates if f".busco.{busco_lineage}." in path.name]
+        if not candidates:
+            sample.errors.append(f"busco: no '{busco_lineage}' lineage summary for "
+                                 f"{sample.og_id}/{sample.seq_date}; present: "
+                                 f"{', '.join(present) or 'none'}")
+            return
     matches: list[tuple[Path, dict[str, Any]]] = []
     parse_errors: list[str] = []
     for candidate in candidates:
@@ -144,7 +181,10 @@ def _select_component(sample: Sample, root: Path, component: str) -> None:
     if len(matches) == 1 and not parse_errors:
         sample.paths[component], sample.records[component] = matches[0]
     elif len(matches) > 1:
-        sample.errors.append(f"{component}: ambiguous matches: " + ", ".join(str(item[0]) for item in matches))
+        hint = ("; set busco_lineage in the manifest to choose one"
+                if component == "busco" else "")
+        sample.errors.append(f"{component}: ambiguous matches: "
+                             + ", ".join(str(item[0]) for item in matches) + hint)
     elif parse_errors:
         sample.errors.append(f"{component}: malformed candidate(s): " + " | ".join(parse_errors))
     elif component in OPTIONAL_COMPONENTS:
@@ -154,7 +194,8 @@ def _select_component(sample: Sample, root: Path, component: str) -> None:
 
 
 def discover_sample(archive_root: Path, og_id: str, seq_date: str,
-                    fastp_root: Optional[Path] = None) -> Sample:
+                    fastp_root: Optional[Path] = None,
+                    busco_lineage: Optional[str] = None) -> Sample:
     sample = Sample(og_id, seq_date)
     sample_root = archive_root / og_id
     if not sample_root.is_dir():
@@ -162,7 +203,7 @@ def discover_sample(archive_root: Path, og_id: str, seq_date: str,
         return sample
     for component in COMPONENTS:
         component_root = (fastp_root / og_id) if component == "fastp" and fastp_root else sample_root
-        _select_component(sample, component_root, component)
+        _select_component(sample, component_root, component, busco_lineage)
     if not sample.valid:
         return sample
     try:
@@ -177,6 +218,11 @@ def discover_sample(archive_root: Path, og_id: str, seq_date: str,
         assembly = {**sample.records["genomescope"],
                     **{key: value for key, value in sample.records.get("coverage_summary", {}).items()
                        if key not in ("og_id", "seq_date")}}
+        # The coverage summary copies its depth fields from *_kmer_depth.json, and older
+        # summaries lack busco_regions, so the measurement fills only what is still empty.
+        for key, value in sample.records.get("kmer_depth", {}).items():
+            if key not in ("og_id", "seq_date") and assembly.get(key) is None:
+                assembly[key] = value
         families = {
             "fastp": sample.records["fastp"],
             "assembly": assembly,
@@ -303,8 +349,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         db_params(args.db_config)  # Validate syntax without connecting in validation-only mode.
         targets = read_manifest(args.manifest)
         args.report_dir.mkdir(parents=True, exist_ok=True)
-        samples = [discover_sample(archive_root, og_id, seq_date, fastp_root)
-                   for og_id, seq_date in targets]
+        samples = [discover_sample(archive_root, og_id, seq_date, fastp_root, lineage)
+                   for og_id, seq_date, lineage in targets]
         write_validation_reports(args.report_dir, samples)
         uploads: list[dict[str, str]] = []
         verifications: list[dict[str, str]] = []

@@ -1,6 +1,6 @@
 #!/bin/bash --login
 
-#SBATCH --account=pawsey0812
+#SBATCH --account=pawsey0964
 #SBATCH --job-name=final-genome-upload
 #SBATCH --partition=long
 #SBATCH --ntasks=1
@@ -13,7 +13,7 @@
 . ../configfile.txt
 
 ACACIA=pawsey0964:oceanomics-draftgenomes/genomes.v2/
-S3=s3://ocom-oceangenomes/analysed-data/draft-genomes
+S3=s3://ocom.oceangenomes/analysed-data/draft-genomes
 ARCHIVE_FAILED=0
 
 for i in "$rundir"/*; do

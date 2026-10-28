@@ -189,22 +189,6 @@ workflow GENOME_QC {
     ch_merqury_results = MERQURY_MERQURY.out.stats.join(MERQURY_MERQURY.out.assembly_qv, by:0) // channel: tuple val(meta), path("*.completeness.stats")
 
 
-    // Channel for gfa stats
-    ch_gfastats_input = join_on_keys_and_merge([assembly, genomescope_summary])
-
-
-    //
-    // MODULE: Run gfa stats
-    //
-
-    GFASTATS (
-        ch_gfastats_input, // tuple val(meta), path(assembly), path(genomescope_summary)
-        "fa", // val out_fmt
-    )
-    ch_versions = ch_versions.mix(GFASTATS.out.versions.first())
-    ch_gfastats_results = GFASTATS.out.assembly_summary // channel: tuple val(meta), path("*.assembly_summary")
-
-
     //
     // MODULE: Run Seqkit stats
     //
@@ -254,6 +238,27 @@ workflow GENOME_QC {
     ch_versions = ch_versions.mix(GENOMESCOPE_RESEED.out.versions.first())
     ch_reseed_decision = GENOMESCOPE_RESEED.out.decision
 
+    // The fit everything below this point uses: the refit where it won, the original
+    // otherwise. Before this, the refit was decided and published and then ignored, so
+    // OG2949 reached the database as the 1,113 Mb fit the pipeline had just rejected for
+    // a 300 Mb one.
+    ch_genomescope_chosen = GENOMESCOPE_RESEED.out.chosen // tuple val(meta), path(summary), path(model)
+    ch_genomescope_summary_final = ch_genomescope_chosen.map { meta, summary, _model -> [meta, summary] }
+
+    //
+    // MODULE: Run gfa stats
+    //
+    // After the refit decision, because the expected size behind NG50, LG50 and auNG is
+    // the genome size estimate, and that is the chosen fit's.
+    ch_gfastats_input = join_on_keys_and_merge([assembly, ch_genomescope_summary_final])
+
+    GFASTATS (
+        ch_gfastats_input, // tuple val(meta), path(assembly), path(genomescope_summary)
+        "fa", // val out_fmt
+    )
+    ch_versions = ch_versions.mix(GFASTATS.out.versions.first())
+    ch_gfastats_results = GFASTATS.out.assembly_summary // channel: tuple val(meta), path("*.assembly_summary")
+
     //
     // MODULE: Cross-check the GenomeScope genome size against the assembly
     //
@@ -261,11 +266,17 @@ workflow GENOME_QC {
     // had not run, so the one reliability check that needs an assembly could not be made.
     // This republishes it as the final verdict.
     //
+    // BUSCO completeness rides along for the gene-space floor. The join drops no sample
+    // that was not already dropped: ch_kmer_depth itself needs BUSCO's full table.
+    //
+    // The refit decision rides along so that, where the refit won, the verdict is about the
+    // fit that gets uploaded rather than the one that was rejected.
     ch_recheck_input = join_on_keys_and_merge(
-        [coverage_summary, ch_seqkit_stats_results, ch_kmer_depth])
+        [coverage_summary, ch_seqkit_stats_results, ch_kmer_depth, BUSCO_BUSCO.out.short_summaries_json,
+         ch_reseed_decision, ch_genomescope_chosen, meryl_hist])
 
     RECHECK_GENOME_SIZE (
-        ch_recheck_input // tuple val(meta), path(coverage_json), path(seqkit_stats), path(kmer_depth_json)
+        ch_recheck_input // tuple val(meta), path(coverage_json), path(seqkit_stats), path(kmer_depth_json), path(busco_summary), path(reseed_decision), path(chosen_summary), path(chosen_model), path(histogram)
     )
     ch_versions = ch_versions.mix(RECHECK_GENOME_SIZE.out.versions.first())
     ch_coverage_summary_final = RECHECK_GENOME_SIZE.out.coverage_json
@@ -315,6 +326,7 @@ workflow GENOME_QC {
     coverage_summary = ch_coverage_summary_final // channel: tuple val(meta), path("*_coverage_summary.json")
     kmer_depth = ch_kmer_depth // channel: tuple val(meta), path("*_kmer_depth.json")
     reseed_decision = ch_reseed_decision // channel: tuple val(meta), path("*_reseed_decision.json")
+    genomescope_summary = ch_genomescope_summary_final // channel: tuple val(meta), path(summary) -- the chosen fit
     multiqc_files = ch_multiqc_files             // channel: [ path(multiqc_files) ]
     multiqc_inputs = ch_sample_multiqc_inputs    // channel: [ tuple(meta), path(multiqc_file) ]
     versions = ch_versions              // channel: [ path(versions.yml) ]
