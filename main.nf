@@ -16,6 +16,7 @@
 */
 
 include { OCEANGENOMES_DRAFTGENOMES } from './workflows/draftgenomes'
+include { DEPTH_ONLY as DEPTH_ONLY_RUN } from './workflows/depth_only'
 
 // Draft genome assembly subworkflows
 include { DOWNLOAD_READS            } from './subworkflows/local/download'
@@ -192,3 +193,22 @@ workflow {
     THE END
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
+
+/*
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    DEPTH-ONLY ENTRY: nextflow run main.nf -entry DEPTH_ONLY --depth_samplesheet <csv> ...
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+*/
+
+workflow DEPTH_ONLY {
+    if (!params.depth_samplesheet) {
+        error "-entry DEPTH_ONLY needs --depth_samplesheet (see workflows/depth_only.nf)"
+    }
+    if (!params.skip_upload_results && !params.sql_config) {
+        error "-entry DEPTH_ONLY uploads by default and needs --sql_config, or set --skip_upload_results"
+    }
+    DEPTH_ONLY_RUN (
+        params.depth_samplesheet,
+        params.sql_config ? file(params.sql_config, checkIfExists: true) : []
+    )
+}

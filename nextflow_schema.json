@@ -381,6 +381,11 @@
                     "description": "Skip uploading QC metrics to SQL database.",
                     "default": false
                 },
+                "depth_samplesheet": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "For -entry DEPTH_ONLY: CSV of archived drafts to measure read depth for (og_id, seq_date, assembly, bam, busco_full_table, genomescope_model, fastp_json, optional seqkit_stats). See workflows/depth_only.nf."
+                },
                 "stop_after_samplesheet": {
                     "type": "boolean",
                     "description": "Stop after the samplesheet is created and published, before any assembly. Edit the published samplesheet, then re-run without this flag (with -resume) to process the samples it lists.",
