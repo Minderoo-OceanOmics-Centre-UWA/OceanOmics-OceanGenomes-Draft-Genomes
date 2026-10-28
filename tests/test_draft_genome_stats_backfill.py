@@ -443,9 +443,12 @@ class KmerDepthTests(unittest.TestCase):
 
     def test_upsert_writes_only_the_depth_columns(self):
         cursor = mock.Mock()
-        record = {"og_id": "OG2", "seq_date": "251210", **dict.fromkeys(stats.DEPTH_COLUMNS)}
+        cursor.fetchone.return_value = (1,)   # the draft_id, where the writer looks one up
+        record = {"og_id": "OG2", "seq_date": "251210",
+                  **dict.fromkeys(stats.DEPTH_COLUMNS), "busco_read_depth": 23.3}
         stats.upsert_record(cursor, "assembly", record)
-        sql = cursor.execute.call_args[0][0]
+        sql = " ".join(call[0][0] for call in cursor.execute.call_args_list)
+        self.assertIn("busco_read_depth", sql)
         for column in ("genomesize", "kmercov", "genome_size_reliable", "genomescope_fit"):
             self.assertNotIn(column, sql)
 
