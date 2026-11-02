@@ -9,6 +9,30 @@ Generalised from "fish + corals" to all invertebrates.
 
 ### `Added`
 
+- **`-entry DEPTH_ONLY`** (`workflows/depth_only.nf`, launcher `scripts/depth_only/run_depth_only.sh`).
+  Measures read depth for archived drafts assembled before `MEASURE_KMER_COVERAGE` existed, from the
+  archived assembly, BAM, BUSCO table and GenomeScope model, and uploads only the depth and host
+  partition columns (`PUSH_KMER_DEPTH_RESULTS`, `bin/push_kmer_depth_to_sqldb.py`). Run over 589
+  drafts from 250606 to 260724 (genomes_db_review R.6 gate, A.4).
+- **`-entry GENOME_SIZE_ONLY`** (`workflows/genome_size_only.nf`, launcher
+  `scripts/genome_size_only/run_genome_size_only.sh`). Runs `CALCULATE_SEQUENCING_COVERAGE`,
+  `GENOMESCOPE_RESEED` and `RECHECK_GENOME_SIZE` on archived files and uploads the chosen fit with its
+  verdict, so drafts assembled before the gate get a `genome_size_reliable`. No BAM or assembly is
+  needed. Run over 656 drafts (A.6).
+- **Depth columns in the upload.** `busco_read_depth` (per-base read depth over Complete BUSCOs,
+  the coverage ENA wants), `busco_regions`, `partition_note` and `genomescope_fit` are now uploaded
+  to `draft_genomes` (genomes_db_review migration 067), from the coverage summary and from
+  `*_kmer_depth.json` (`parse_kmer_depth`, and a `kmer_depth` component in the backfill).
+- **A second way a GenomeScope refit wins.** When the first fit took the 1x peak for the
+  heterozygous one, the refit is kept if its kmercov lands within
+  `--genomescope_reseed_max_lambda_offset` (0.15) of the measured coverage, the original
+  heterozygosity is above `--genomescope_reseed_min_original_het` (5%) and the refit's at or below
+  `--genomescope_reseed_max_reseeded_het` (8%), `model_fit_allkmers` loses at most
+  `--genomescope_reseed_max_allkmers_loss` (10) points and `model_fit_full` still clears
+  `--genomescope_min_model_fit`. The assembly plays no part. Over 129 refits of archived drafts the
+  first rule kept 3; this route kept about 50 more, all but one closer to the host assembly size.
+  OG2328: 251 -> 612 Mb on a 501 Mb host assembly.
+
 - `--stop_after_samplesheet`: download the reads, publish the samplesheet (taxonomy still
   checked) and stop before any assembly, so a batch can be reviewed and trimmed. Re-running
   without the flag, with `-resume`, reuses the download and the edited samplesheet.
@@ -261,6 +285,10 @@ Generalised from "fish + corals" to all invertebrates.
 - `scripts/taxonomy/load_anthozoa_taxonomy.py` renamed to `scripts/taxonomy/load_taxonomy.py`.
 
 ### `Fixed`
+
+- **Depth-only seqkit stats were published as `null.seqkit_stats.tsv`.** The depth-only meta had no
+  `assembly_prefix`, which names `SEQKIT_STATS`' output. No values were affected: each draft published
+  into its own directory and no OG had two drafts in the run.
 
 - **`coverage_summary/genome_coverage_summary.csv` now carries the final verdicts.**
   `COMPILE_JSON_TO_CSV` ran inside `GENOME_ASSEMBLY` on the provisional summaries, before

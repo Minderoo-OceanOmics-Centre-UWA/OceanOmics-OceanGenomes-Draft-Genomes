@@ -26,7 +26,10 @@ genome size estimate, and loads the QC metrics into the OceanOmics database.
 7. Genome QC with BUSCO (lineage chosen by taxonomic class), BWA-MEM2, Merqury, gfastats and SeqKit
 8. Genome size and coverage verdict: GenomeScope fit checks, an independent coverage measurement
    from read depth over BUSCO genes, a host/symbiont depth partition of the assembly, an optional
-   reseeded GenomeScope refit, and a cross-check against the assembly
+   reseeded GenomeScope refit, and a cross-check against the assembly. Two named entries re-run
+   just the read depth (`-entry DEPTH_ONLY`) or just the genome size verdict
+   (`-entry GENOME_SIZE_ONLY`) for drafts already archived; see
+   [usage](docs/usage.md#re-running-depth-or-genome-size-for-archived-drafts)
 9. Run-level and per-sample MultiQC reports
 10. Upload of QC metrics to the OceanOmics PostgreSQL database
 11. A ready-to-run launcher for the [mitogenome pipeline](https://github.com/Minderoo-OceanOmics-Centre-UWA/Oceanomics-OceanGenomes-Mitogenomes)
