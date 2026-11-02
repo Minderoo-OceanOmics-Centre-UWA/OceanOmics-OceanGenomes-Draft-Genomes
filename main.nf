@@ -17,6 +17,7 @@
 
 include { OCEANGENOMES_DRAFTGENOMES } from './workflows/draftgenomes'
 include { DEPTH_ONLY as DEPTH_ONLY_RUN } from './workflows/depth_only'
+include { GENOME_SIZE_ONLY as GENOME_SIZE_ONLY_RUN } from './workflows/genome_size_only'
 
 // Draft genome assembly subworkflows
 include { DOWNLOAD_READS            } from './subworkflows/local/download'
@@ -209,6 +210,25 @@ workflow DEPTH_ONLY {
     }
     DEPTH_ONLY_RUN (
         params.depth_samplesheet,
+        params.sql_config ? file(params.sql_config, checkIfExists: true) : []
+    )
+}
+
+/*
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    GENOME-SIZE-ONLY ENTRY: nextflow run main.nf -entry GENOME_SIZE_ONLY --genome_size_samplesheet <csv> ...
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+*/
+
+workflow GENOME_SIZE_ONLY {
+    if (!params.genome_size_samplesheet) {
+        error "-entry GENOME_SIZE_ONLY needs --genome_size_samplesheet (see workflows/genome_size_only.nf)"
+    }
+    if (!params.skip_upload_results && !params.sql_config) {
+        error "-entry GENOME_SIZE_ONLY uploads by default and needs --sql_config, or set --skip_upload_results"
+    }
+    GENOME_SIZE_ONLY_RUN (
+        params.genome_size_samplesheet,
         params.sql_config ? file(params.sql_config, checkIfExists: true) : []
     )
 }

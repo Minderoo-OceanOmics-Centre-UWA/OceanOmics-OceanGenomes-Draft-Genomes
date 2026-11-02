@@ -53,7 +53,10 @@ workflow DEPTH_ONLY {
                     error "depth samplesheet: ${row.og_id ?: '?'}/${row.seq_date ?: '?'} has no ${column}"
                 }
             }
-            def meta = [id: row.og_id, seq_date: row.seq_date, prefix: "${row.og_id}.ilmn.${row.seq_date}"]
+            // assembly_prefix names SEQKIT_STATS' output. Without it every draft's stats were
+            // published as null.seqkit_stats.tsv.
+            def meta = [id: row.og_id, seq_date: row.seq_date, prefix: "${row.og_id}.ilmn.${row.seq_date}",
+                        assembly_prefix: file(row.assembly).name.replaceAll(/\.(fna|fa|fasta)(\.gz)?$/, '')]
             [meta, row]
         }
 

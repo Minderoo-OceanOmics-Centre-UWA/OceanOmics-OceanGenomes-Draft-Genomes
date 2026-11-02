@@ -75,6 +75,11 @@ process GENOMESCOPE_RESEED {
         --reseeded-model reseed/${prefix}_genomescope2_reseeded_model.txt \\
         --seed "\$SEED" \\
         --min-reseed-fit-gain ${params.genomescope_min_reseed_fit_gain} \\
+        --min-model-fit ${params.genomescope_min_model_fit} \\
+        --max-lambda-offset ${params.genomescope_reseed_max_lambda_offset} \\
+        --max-allkmers-loss ${params.genomescope_reseed_max_allkmers_loss} \\
+        --min-original-het ${params.genomescope_reseed_min_original_het} \\
+        --max-reseeded-het ${params.genomescope_reseed_max_reseeded_het} \\
         --out ${prefix}_reseed_decision.json
 
     # Publish the reseeded fit only when it won, so there is never a better-looking file
@@ -93,7 +98,7 @@ process GENOMESCOPE_RESEED {
     fi
 
     cat <<-END_TOOL_PARAMS > 33_genomescope_reseed.tool_params_mqcrow.html
-    <tr><td>GenomeScope Reseed</td><td><samp>genomescope2 -l &lt;measured lambda&gt;, when the first fit was flagged and lambda >= ${params.kmer_depth_min_seedable}</samp></td><td>Refits with the k-mer coverage measured from read depth as the optimiser's starting point, and keeps the result only if the fit improves and kmercov moves toward that measurement.</td></tr>
+    <tr><td>GenomeScope Reseed</td><td><samp>genomescope2 -l &lt;measured lambda&gt;, when the first fit was flagged and lambda >= ${params.kmer_depth_min_seedable}</samp></td><td>Refits with the k-mer coverage measured from read depth as the optimiser's starting point, and keeps the result only if the fit improves and kmercov moves toward that measurement, or kmercov lands on the measurement and an implausible heterozygosity becomes plausible without losing more than ${params.genomescope_reseed_max_allkmers_loss} points of all-k-mer fit.</td></tr>
     END_TOOL_PARAMS
 
     cat <<-END_VERSIONS > versions.yml
