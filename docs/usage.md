@@ -252,6 +252,19 @@ verdict is `UNRELIABLE_GENOME_SIZE_ESTIMATE` and the reasons are listed in `geno
 | `--host_depth_min_regions` | `50` | Fewer BUSCO regions and the partition is low confidence. |
 | `--genomescope_reseed_when_flagged` | `true` | Refit GenomeScope seeded with the measured coverage when flagged. |
 | `--genomescope_min_reseed_fit_gain` | `2` | Model-fit points a refit must gain (and it must move kmercov toward the measurement) to be kept. |
+| `--genomescope_reseed_max_lambda_offset` | `0.15` | Second route for a refit: its kmercov must land within this fraction of the measured coverage. |
+| `--genomescope_reseed_max_allkmers_loss` | `10` | Second route: points of `model_fit_allkmers` the refit may lose. |
+| `--genomescope_reseed_min_original_het`, `--genomescope_reseed_max_reseeded_het` | `5`, `8` | Second route: the original heterozygosity (%) must be above the first and the refit's at or below the second. |
+
+A refit is kept by either of two rules; neither looks at the assembly. The first needs
+`model_fit_full` to gain `--genomescope_min_reseed_fit_gain` points and kmercov to move toward the
+measured coverage. The second is for the commonest failure in low-coverage drafts, a first fit that
+took the 1x peak for the heterozygous one (kmercov about twice the measured coverage, heterozygosity
+10-50%, genome size half or less): it keeps the refit when kmercov lands on the measurement, the
+heterozygosity becomes plausible, `model_fit_allkmers` loses no more than the limit, and
+`model_fit_full` still clears `--genomescope_min_model_fit`. `model_fit_full` is not compared on that
+route, because it is scored over each model's own coverage range. The thresholds come from a sweep
+over 129 refits of archived drafts (genomes_db_review, `docs/r6_gate_a3_a5_record.md`, A.6).
 
 ## Resuming a run that already has MEGAHIT checkpoints
 
@@ -369,6 +382,58 @@ singularity exec \
 All six metric families for one `(og_id, seq_date)` are written and verified in one transaction. A
 parsing, SQL, or source-to-database comparison failure rolls back that sample. Successful and failed
 samples can safely be rerun because the writes use `ON CONFLICT (og_id, seq_date) DO UPDATE`.
+
+To write only the read depth and host partition from archived `*_kmer_depth.json` files, use
+`bin/push_kmer_depth_to_sqldb.py -c <db config> -k <files...> [--dry-run]`. It writes
+`lambda_depth`, `busco_read_depth`, `busco_regions` and the host partition columns and nothing else,
+and refuses a draft that has no `draft_genomes` row.
+
+## Re-running depth or genome size for archived drafts
+
+Two named entries re-run one part of genome QC on drafts that are already assembled and archived,
+from the archived files, without re-assembling or re-running BUSCO. Both upload by default (give
+`--sql_config`, or `--skip_upload_results` for a dry run) and both have a launcher for Setonix that
+stages inputs from Acacia and S3 into `/scratch/pawsey1348/$USER/depth_only/stage/`, writes a
+samplesheet and a `skipped.tsv` of drafts with a missing or ambiguous input, and runs the entry.
+Each takes a list of `og_id<TAB>seq_date` lines with no header. Try two or three drafts first.
+
+### Read depth (`-entry DEPTH_ONLY`)
+
+For drafts assembled before `MEASURE_KMER_COVERAGE` existed, which have no `busco_read_depth`.
+
+```bash
+scripts/depth_only/run_depth_only.sh scripts/depth_only/lists/<seq_date>.tsv
+```
+
+It stages the assembly, the archived BAM, the BUSCO full table, the GenomeScope model and the fastp
+report, then runs `MEASURE_KMER_COVERAGE` and `SUMMARISE_KMER_COVERAGE` (plus `SEQKIT_STATS` where
+none is archived) and uploads through `PUSH_KMER_DEPTH_RESULTS`. Only the depth and host partition
+columns are written; genome size and every other QC value stay as they are. Check each
+`coverage/*_kmer_depth.json` `status`: `too_few_busco_regions` means the BAM and the BUSCO table did
+not match, or the assembly has too few Complete BUSCOs. Samplesheet columns are documented in
+`workflows/depth_only.nf`. Results publish to `/scratch/pawsey1348/$USER/depth_only/results/`.
+
+### Genome size (`-entry GENOME_SIZE_ONLY`)
+
+For drafts that have a measured depth but no genome size verdict, or whose verdict predates a
+change to the rules.
+
+```bash
+scripts/genome_size_only/run_genome_size_only.sh <list.tsv>
+GSIZE_BASE=/scratch/pawsey1348/$USER/genome_size_other scripts/genome_size_only/run_genome_size_only.sh <list.tsv>
+```
+
+It runs `CALCULATE_SEQUENCING_COVERAGE`, `GENOMESCOPE_RESEED` and `RECHECK_GENOME_SIZE` unchanged on
+archived files and uploads the chosen fit with its verdict through `PUSH_ASSEMBLY_RESULTS`. No BAM
+or assembly is needed: the depth comes from the draft's `*_kmer_depth.json`, taken from the
+depth-only results or, for drafts a full run measured, from Acacia. It stages the meryl histogram,
+the GenomeScope summary and model, BUSCO's short summary (the lineage whose full table anchored the
+depth), the seqkit stats and the fastp report. The upload rewrites the GenomeScope numbers and the
+verdict (`genomesize`, `genome_size_reliable`, `genome_size_flags`, `kmercov`, `genomescope_fit`)
+and leaves BUSCO, Merqury, gfastats and decontamination values alone. Snapshot the affected
+`draft_genomes` columns before uploading. `GSIZE_BASE` (default
+`/scratch/pawsey1348/$USER/genome_size_only`) keeps one batch's results apart from another's.
+Samplesheet columns are documented in `workflows/genome_size_only.nf`.
 
 ## Parameter files
 

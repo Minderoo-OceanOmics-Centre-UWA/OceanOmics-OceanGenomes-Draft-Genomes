@@ -163,9 +163,13 @@ meryl use the fastp reads directly and this folder is absent.
 
 When `--genomescope2_l` is set the GenomeScope2 files carry an `.l<value>` suffix. When the first
 fit is flagged unreliable, `GENOMESCOPE_RESEED` refits with `-l` set to the coverage measured from
-read depth, and keeps the refit only if it improves `model_fit_full` by at least
-`--genomescope_min_reseed_fit_gain` **and** moves kmercov toward the measurement. Downstream steps
-use whichever fit won; `_reseed_decision.json` says which.
+read depth, and keeps the refit if it improves `model_fit_full` by at least
+`--genomescope_min_reseed_fit_gain` **and** moves kmercov toward the measurement, or if it lands
+kmercov on the measurement and turns an implausible heterozygosity into a plausible one without
+losing more than `--genomescope_reseed_max_allkmers_loss` points of `model_fit_allkmers` (see
+[usage](usage.md#genome-size-and-coverage-checks)). Downstream steps use whichever fit won;
+`_reseed_decision.json` says which, and `genomescope_fit` in the coverage summary and the database
+records it (`original` or `reseeded`).
 
 ### Assembly (MEGAHIT)
 
@@ -296,6 +300,8 @@ Key fields in `<prefix>_coverage_summary.json`:
 | `genome_size_reliable`, `genome_size_flags` | Whether the size estimate passed, and the reasons if not (e.g. `no_kmer_peak`, `genome_size_disagrees_with_assembly`, `fitted_coverage_disagrees_with_read_depth`, `assembly_lacks_host_gene_space`). |
 | `assembly_cross_check`, `assembly_size`, `assembly_ratio_basis`, `assembly_ratio_denominator` | `pending` or `done`; which size the estimate was compared with (`host` or `total`) and the number used. |
 | `lambda_depth`, `kmercov_over_lambda_depth` | Haploid coverage measured from BUSCO read depth, and GenomeScope's fit relative to it. |
+| `busco_mean_depth`, `busco_regions` | Per-base read depth over the Complete BUSCOs and how many regions it rests on. Stored as `draft_genomes.busco_read_depth`: the sequencing depth to quote (ENA `COVERAGE`). `lambda_depth` is the same depth halved and moved into k-mer space, for checking GenomeScope only. |
+| `genomescope_fit` | `original` or `reseeded`: which GenomeScope fit the numbers are. |
 | `busco_complete` | BUSCO C% used by the gene-space check. |
 | Host partition fields | See below. |
 
