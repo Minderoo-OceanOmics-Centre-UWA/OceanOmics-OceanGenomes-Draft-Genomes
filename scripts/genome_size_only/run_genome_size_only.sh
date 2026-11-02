@@ -76,6 +76,12 @@ while IFS=$'\t' read -r og sd; do
     depth=$(one "$r" "*/coverage/${key}_kmer_depth.json")
     stats=$(one "$d" "*/seqkit/*${key}*seqkit_stats.tsv")
     [ -n "$stats" ] || stats=$(one "$r" "*${key}*seqkit_stats.tsv")
+    # The depth-only run published its stats as null.seqkit_stats.tsv until 2026-11-02. Take
+    # that file only if it is about this draft's assembly.
+    if [ -z "$stats" ]; then
+        stats=$(one "$r" "*/seqkit/null.seqkit_stats.tsv")
+        if [ -n "$stats" ] && ! grep -q "${key}" "$stats"; then stats=""; fi
+    fi
     # The short summary of the lineage whose full table anchored the depth.
     table=$(first "$d" "*/busco/${key}.*full_table.tsv")
     busco=""
