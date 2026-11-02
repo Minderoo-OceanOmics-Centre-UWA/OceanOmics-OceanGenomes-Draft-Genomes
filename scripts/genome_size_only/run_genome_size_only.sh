@@ -17,9 +17,12 @@
 #           summary, seqkit stats
 #   S3      s3:ocom.oceangenomes/analysed-data/draft-genomes/<og>/   the fastp report
 # and takes the *_kmer_depth.json, and seqkit stats where Acacia has none, from
-# $DEPTH/results/draftgenomes/<og>/.
+# $DEPTH/results/draftgenomes/<og>/. A draft whose depth was measured by a full run (260909
+# on) has its *_kmer_depth.json on Acacia instead, and that copy is used when the depth-only
+# results have none.
 #
-# Results publish to $BASE/results/draftgenomes/<og>/{coverage,kmers}/.
+# Results publish to $BASE/results/draftgenomes/<og>/{coverage,kmers}/. Set GSIZE_BASE to
+# use another directory, e.g. to keep one batch's results apart while another is archived.
 
 set -euo pipefail
 
@@ -28,7 +31,7 @@ shift
 module load nextflow/25.04.6
 module load singularity/4.1.0-nompi
 
-BASE="/scratch/pawsey1348/$USER/genome_size_only"
+BASE="${GSIZE_BASE:-/scratch/pawsey1348/$USER/genome_size_only}"
 DEPTH="/scratch/pawsey1348/$USER/depth_only"
 ACACIA="pawsey0964:oceanomics-draftgenomes/genomes.v2"
 S3="s3:ocom.oceangenomes/analysed-data/draft-genomes"
@@ -66,6 +69,7 @@ while IFS=$'\t' read -r og sd; do
         --include "assemblies/genome/busco/${key}.*full_table.tsv" \
         --include "assemblies/genome/busco/${key}.*short_summary.json" \
         --include "assemblies/genome/seqkit/*${key}*" \
+        --include "coverage/${key}_kmer_depth.json" \
         --checksum
     rclone copy "$S3/$og/" "$d/fastp/" --include "*${sd}*fastp.json" --checksum
 
@@ -74,6 +78,7 @@ while IFS=$'\t' read -r og sd; do
     model=$(one "$d" "*/${key}_genomescope2_model.txt")
     fastp=$(one "$d" "*/fastp/*${sd}*fastp.json")
     depth=$(one "$r" "*/coverage/${key}_kmer_depth.json")
+    [ -n "$depth" ] || depth=$(one "$d" "*/coverage/${key}_kmer_depth.json")
     stats=$(one "$d" "*/seqkit/*${key}*seqkit_stats.tsv")
     [ -n "$stats" ] || stats=$(one "$r" "*${key}*seqkit_stats.tsv")
     # The depth-only run published its stats as null.seqkit_stats.tsv until 2026-11-02. Take
