@@ -81,7 +81,14 @@ def choose(args):
         winner, reason = "original", "reseeded run produced no summary"
     else:
         winner, reason = gate.choose_reseeded_fit(
-            original, reseeded, lam, {"min_reseed_fit_gain": args.min_reseed_fit_gain})
+            original, reseeded, lam, {
+                "min_reseed_fit_gain": args.min_reseed_fit_gain,
+                "min_model_fit": args.min_model_fit,
+                "reseed_max_lambda_offset": args.max_lambda_offset,
+                "reseed_max_allkmers_loss": args.max_allkmers_loss,
+                "reseed_min_original_het": args.min_original_het,
+                "reseed_max_reseeded_het": args.max_reseeded_het,
+            })
 
     decision = {
         "seed": None if not attempted else int(args.seed),
@@ -125,6 +132,16 @@ def main(argv=None):
     c.add_argument("--reseeded-model", required=True)
     c.add_argument("--seed", required=True)
     c.add_argument("--min-reseed-fit-gain", type=float, default=2.0)
+    # The second route; defaults are genomescope_reliability.DEFAULTS.
+    c.add_argument("--min-model-fit", type=float, default=gate.DEFAULTS["min_model_fit"])
+    c.add_argument("--max-lambda-offset", type=float,
+                   default=gate.DEFAULTS["reseed_max_lambda_offset"])
+    c.add_argument("--max-allkmers-loss", type=float,
+                   default=gate.DEFAULTS["reseed_max_allkmers_loss"])
+    c.add_argument("--min-original-het", type=float,
+                   default=gate.DEFAULTS["reseed_min_original_het"])
+    c.add_argument("--max-reseeded-het", type=float,
+                   default=gate.DEFAULTS["reseed_max_reseeded_het"])
     c.add_argument("--out", required=True)
     c.set_defaults(func=choose)
 

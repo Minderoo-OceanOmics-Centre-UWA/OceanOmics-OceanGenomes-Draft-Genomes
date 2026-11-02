@@ -256,6 +256,64 @@ class ReseedDecisionTests(unittest.TestCase):
         self.assertEqual(winner, "original")
 
 
+class SecondReseedRouteTests(unittest.TestCase):
+    """A first fit that took the 1x peak for the heterozygous one, from the A.6 sweep."""
+
+    def fit(self, fit_full, fit_allkmers, het, kmercov, size):
+        return {"summary": {"model_fit_full": fit_full, "model_fit_allkmers": fit_allkmers,
+                            "heterozygosity_max": het, "haploid_max": size},
+                "model": {"kmercov": kmercov}}
+
+    def test_keeps_a_reseed_that_lands_on_lambda_and_fixes_an_implausible_heterozygosity(self):
+        # OG2328: fit_full 85.5 -> 76.4 fails the first rule; allkmers 57.3 -> 53.9.
+        winner, reason = gate.choose_reseeded_fit(
+            self.fit(85.48, 57.32, 21.15, 19.86, 250_581_502),
+            self.fit(76.37, 53.89, 2.72, 9.876, 612_350_342), 9.899)
+        self.assertEqual(winner, "reseeded")
+        self.assertIn("heterozygosity 21.1% -> 2.7%", reason)
+
+    def test_rejects_when_kmercov_misses_lambda_by_more_than_the_offset(self):
+        # OG2672's shape: 7.7 against a measured 6.3 is 22% off.
+        winner, _reason = gate.choose_reseeded_fit(
+            self.fit(80.9, 55.0, 20.0, 16.0, 300_000_000),
+            self.fit(62.8, 52.0, 2.0, 7.7, 700_000_000), 6.3)
+        self.assertEqual(winner, "original")
+
+    def test_rejects_when_the_original_heterozygosity_is_plausible(self):
+        # OG1796: the original is the 1x-peak fit's opposite; this route is not for it.
+        winner, _reason = gate.choose_reseeded_fit(
+            self.fit(97.81, 82.72, 0.90, 10.65, 1_430_173_190),
+            self.fit(97.80, 81.76, 3.48, 17.29, 842_544_466), 16.35)
+        self.assertEqual(winner, "original")
+
+    def test_rejects_a_large_loss_of_all_kmer_fit(self):
+        # OG1987: allkmers 38.8 -> 26.7, and the size overshoots the host 1.8x.
+        winner, _reason = gate.choose_reseeded_fit(
+            self.fit(84.79, 38.76, 5.02, 35.47, 82_868_561),
+            self.fit(42.89, 26.73, 2.99, 7.483, 795_241_652), 6.91)
+        self.assertEqual(winner, "original")
+
+    def test_rejects_a_degenerate_reseed(self):
+        # OG1927: the reseed reports 100% heterozygosity.
+        winner, _reason = gate.choose_reseeded_fit(
+            self.fit(98.0, 80.83, 3.11, 15.75, 1_990_434_908),
+            self.fit(99.2, 81.29, 100.0, 29.82, 2_012_696_078), 27.65)
+        self.assertEqual(winner, "original")
+
+    def test_rejects_a_reseed_below_the_model_fit_floor(self):
+        winner, _reason = gate.choose_reseeded_fit(
+            self.fit(65.8, 39.7, 14.7, 14.73, 331_219_621),
+            self.fit(48.0, 35.0, 3.5, 5.2, 1_629_555_565), 5.11)
+        self.assertEqual(winner, "original")
+
+    def test_thresholds_can_be_overridden(self):
+        winner, _reason = gate.choose_reseeded_fit(
+            self.fit(85.48, 57.32, 21.15, 19.86, 250_581_502),
+            self.fit(76.37, 53.89, 2.72, 9.876, 612_350_342), 9.899,
+            {"reseed_max_allkmers_loss": 2.0})
+        self.assertEqual(winner, "original")
+
+
 class DepthCrossCheckTests(unittest.TestCase):
     def test_fitted_coverage_far_from_measured_is_flagged(self):
         coverage = {"estimated_genome_size": 123_000_000, "genome_size_flags": "",

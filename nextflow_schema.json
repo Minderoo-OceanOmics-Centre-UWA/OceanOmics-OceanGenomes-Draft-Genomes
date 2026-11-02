@@ -163,6 +163,26 @@
                     "default": 2,
                     "minimum": 0
                 },
+                "genomescope_reseed_max_lambda_offset": {
+                    "type": "number",
+                    "default": 0.15,
+                    "description": "Second reseed route: the reseeded kmercov must land within this fraction of the measured lambda."
+                },
+                "genomescope_reseed_max_allkmers_loss": {
+                    "type": "number",
+                    "default": 10,
+                    "description": "Second reseed route: points of model_fit_allkmers the reseeded fit may lose."
+                },
+                "genomescope_reseed_min_original_het": {
+                    "type": "number",
+                    "default": 5,
+                    "description": "Second reseed route: original heterozygosity (%) above which it is implausible."
+                },
+                "genomescope_reseed_max_reseeded_het": {
+                    "type": "number",
+                    "default": 8,
+                    "description": "Second reseed route: reseeded heterozygosity (%) at or below which it is plausible."
+                },
                 "report_subdir": {
                     "type": "string",
                     "description": "Subdirectory for the run-level aggregate reports (coverage_summary, multiqc). Set it per launch when several launches share one outdir, so they do not overwrite each other's copy.",

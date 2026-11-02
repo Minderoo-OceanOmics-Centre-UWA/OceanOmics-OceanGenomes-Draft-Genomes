@@ -62,6 +62,12 @@ DEFAULTS = {
     "min_host_depth_ratio": 0.4,    # BUSCO-gene depth over assembly-wide depth
     "min_seedable_lambda": 5.0,     # below this there is no host signal to fit
     "min_reseed_fit_gain": 2.0,     # points of model_fit_full a reseed must win to be kept
+    # The second way a reseed wins (choose_reseeded_fit). Set from the A.6 sweep over 129
+    # reseeds of older drafts; see genomes_db_review docs/r6_gate_a3_a5_record.md.
+    "reseed_max_lambda_offset": 0.15,   # reseeded kmercov within this fraction of lambda
+    "reseed_max_allkmers_loss": 10.0,   # points of model_fit_allkmers it may lose
+    "reseed_min_original_het": 5.0,     # original heterozygosity (%) above which it is implausible
+    "reseed_max_reseeded_het": 8.0,     # reseeded heterozygosity (%) at or below which it is not
     "min_busco_complete": 10.0,     # BUSCO C% below which the assembly is not the host's
 }
 
@@ -602,6 +608,28 @@ def choose_reseeded_fit(original, reseeded, lambda_depth, thresholds=None):
     the gate's own cross-check measures against -- agreement bought by tuning a starting
     value would be circular. So assembly size is not part of this decision.
 
+    A reseed that fails that rule still wins by a second route, which also leaves the
+    assembly out. It is for the commonest failure in low-coverage drafts: GenomeScope takes
+    the 1x peak for the heterozygous one, so kmercov comes out at twice the measured lambda,
+    heterozygosity at 10-50%, and the genome size at half or less. All of:
+
+      - the reseeded kmercov lands within reseed_max_lambda_offset of the measured lambda,
+        and closer to it than the original;
+      - the original heterozygosity is implausible (> reseed_min_original_het) and the
+        reseeded one is not (<= reseed_max_reseeded_het);
+      - model_fit_allkmers loses at most reseed_max_allkmers_loss points, and the
+        reseeded model_fit_full still clears min_model_fit.
+
+    model_fit_full is not compared on this route because it is not comparable here: it is
+    scored over each model's own coverage range, so a fit at half the kmercov is scored
+    over a different, noisier stretch of the histogram. model_fit_allkmers is scored over
+    the same k-mers for both. OG2328: kmercov 19.9 -> 9.9 against a measured 9.9,
+    heterozygosity 21.1% -> 2.7%, fit_full 85.5 -> 76.4 but allkmers 57.3 -> 53.9, size
+    251 -> 612 Mb. OG2672 still loses: its reseeded kmercov is 22% off the measurement.
+
+    In the A.6 sweep (129 reseeds of older drafts) the first rule kept 3. The second kept
+    about 50 more, and all but one moved closer to the host assembly, which it never sees.
+
     Returns (winner, reason) where winner is "reseeded" or "original".
     """
     cfg = dict(DEFAULTS, **(thresholds or {}))
@@ -628,6 +656,23 @@ def choose_reseeded_fit(original, reseeded, lambda_depth, thresholds=None):
     if not closer:
         return "original", (f"reseeded kmercov {new_kcov:.1f} is no closer to the measured "
                             f"{lambda_depth:.1f} than {base_kcov:.1f}")
+
+    base_het = original.get("summary", {}).get("heterozygosity_max")
+    new_het = reseeded.get("summary", {}).get("heterozygosity_max")
+    base_all = original.get("summary", {}).get("model_fit_allkmers")
+    new_all = reseeded.get("summary", {}).get("model_fit_allkmers")
+    new_size = reseeded.get("summary", {}).get("haploid_max")
+    if None not in (base_het, new_het, base_all, new_all) and new_size:
+        offset = abs(new_kcov - lambda_depth) / lambda_depth
+        if (offset <= cfg["reseed_max_lambda_offset"]
+                and base_het > cfg["reseed_min_original_het"]
+                and new_het <= cfg["reseed_max_reseeded_het"]
+                and base_all - new_all <= cfg["reseed_max_allkmers_loss"]
+                and new_fit >= cfg["min_model_fit"]):
+            return "reseeded", (f"kmercov {base_kcov:.1f} -> {new_kcov:.1f} against the measured "
+                                f"{lambda_depth:.1f}, heterozygosity {base_het:.1f}% -> "
+                                f"{new_het:.1f}%, model_fit_allkmers {base_all:.1f} -> {new_all:.1f}")
+
     return "original", (f"model_fit_full gained only {fit_gain:+.1f} points, "
                         f"below the {cfg['min_reseed_fit_gain']:g} required")
 
