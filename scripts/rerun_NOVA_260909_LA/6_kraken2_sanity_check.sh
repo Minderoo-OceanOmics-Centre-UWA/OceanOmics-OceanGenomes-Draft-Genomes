@@ -14,6 +14,8 @@
 #                            be deleting real host sequence from every sponge.
 set -euo pipefail
 
+# Setonix's default environment is pawseyenv/2026.11 since November 2026; singularity 4.1.0-nompi is in 2025.08.
+module load pawseyenv/2025.08
 module load singularity/4.1.0-nompi
 
 RUN=NOVA_260909_LA

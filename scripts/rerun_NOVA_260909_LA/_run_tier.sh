@@ -14,7 +14,10 @@
 #                            checkpoints, which carry no input fingerprint (see below)
 set -euo pipefail
 
-module load nextflow/25.04.6
+# Setonix's default environment is pawseyenv/2026.11 since November 2026; the pinned
+# nextflow and singularity versions below are in pawseyenv/2025.08 (Nextflow also needs gcc-native/13.2).
+module load pawseyenv/2025.08
+module load gcc-native/13.2 nextflow/25.04.6
 module load singularity/4.1.0-nompi
 
 RUN=NOVA_260909_LA
