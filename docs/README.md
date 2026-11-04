@@ -12,4 +12,3 @@ Elsewhere in the repository:
 - [`compute-audit/README.md`](../compute-audit/README.md): Slurm SU accounting per run and per sample.
 - [`scripts/taxonomy/README.md`](../scripts/taxonomy/README.md): loading NCBI taxa into the `species` table.
 - [`tests/README.md`](../tests/README.md): running the unit tests.
-- [`scripts/rerun_NOVA_260909_LA/README.md`](../scripts/rerun_NOVA_260909_LA/README.md): the NOVA_260909_LA remediation re-run.
