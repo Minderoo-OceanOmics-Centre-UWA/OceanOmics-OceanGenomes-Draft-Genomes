@@ -332,6 +332,24 @@ class MainWritesTheSheetTests(TaxdumpDirMixin, unittest.TestCase):
         self.assertEqual(rows, [])
 
 
+class BuscoVertebrateClassTests(unittest.TestCase):
+    """Every vertebrate class master_species writes must reach the vertebrata lineage.
+
+    The class comes from master_species whenever it matches, and it spells sharks
+    'Elasmobranchii', not NCBI's 'Chondrichthyes'. While buscoDbForClass only knew
+    the NCBI name, every shark was scored against metazoa.
+    """
+
+    def test_master_species_spellings_are_routed_to_vertebrata(self):
+        source = (ROOT / "subworkflows" / "local" /
+                  "utils_nfcore_oceangenomes_draftgenomes_pipeline" / "main.nf").read_text()
+        block = re.search(r"BUSCO_VERT_CLASSES = \[(.*?)\]", source, re.S).group(1)
+        routed = set(re.findall(r"'([^']+)'", block))
+        for name in ("Elasmobranchii", "Holocephali", "Petromyzonti", "Coelacanthi",
+                     "Crocodylia", "Myxini", "Mammalia", "Aves", "Reptilia"):
+            self.assertIn(name, routed)
+
+
 class SchemaMetaAnnotationTests(unittest.TestCase):
     """The samplesheet is read by column name, not by position.
 

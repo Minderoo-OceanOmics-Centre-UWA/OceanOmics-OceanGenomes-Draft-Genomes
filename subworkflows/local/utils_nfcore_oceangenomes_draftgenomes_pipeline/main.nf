@@ -249,9 +249,14 @@ def methodsDescriptionText(mqc_methods_yaml) {
 //
 def buscoDbForClass(meta) {
     def BUSCO_ACTI_CLASSES = ['Actinopteri', 'Actinopterygii', 'Teleostei']
+    // Both NCBI's class names and master_species' own spellings, since a sample's class
+    // comes from whichever resolved it: master_species uses Elasmobranchii/Holocephali
+    // (not Chondrichthyes), Petromyzonti (not Hyperoartia), Coelacanthi and Crocodylia.
+    // Missing those sent every shark to metazoa.
     def BUSCO_VERT_CLASSES = [
-        'Chondrichthyes', 'Mammalia', 'Aves', 'Reptilia', 'Amphibia',
-        'Myxini', 'Hyperoartia', 'Coelacanthimorpha', 'Dipneusti', 'Lepidosauria', 'Testudines'
+        'Chondrichthyes', 'Elasmobranchii', 'Holocephali', 'Mammalia', 'Aves', 'Reptilia',
+        'Crocodylia', 'Amphibia', 'Myxini', 'Hyperoartia', 'Petromyzonti', 'Coelacanthimorpha',
+        'Coelacanthi', 'Dipneusti', 'Lepidosauria', 'Testudines'
     ]
     def BUSCO_CRUSTACEA_CLASSES = ['Malacostraca', 'Thecostraca', 'Branchiopoda', 'Copepoda', 'Ostracoda', 'Maxillopoda']
     def BUSCO_MOLLUSCA_CLASSES = ['Gastropoda', 'Bivalvia', 'Polyplacophora', 'Cephalopoda', 'Scaphopoda', 'Monoplacophora']
@@ -263,8 +268,8 @@ def buscoDbForClass(meta) {
     if ( !meta.class || meta.class.toString().toLowerCase() == 'unknown' ) {
         throw new IllegalArgumentException(
             "Sample '${meta.id}' has no taxonomic class (got '${meta.class}'), so no BUSCO " +
-            "lineage can be chosen. Load the missing taxonomy with " +
-            "scripts/taxonomy/load_taxonomy.py and regenerate the samplesheet."
+            "lineage can be chosen. Correct its nominal_species_id in the sample table " +
+            "and regenerate the samplesheet, or fill in its class by hand."
         )
     }
 
