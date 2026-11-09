@@ -1,51 +1,40 @@
 #!/usr/bin/env python3
-import psycopg2
-import configparser
+"""
+Print one sample's taxonomy as og_id,nominal_species_id,taxon_id,class.
+
+Delegates to create_samplesheet.resolve_species_info so this path resolves a
+name exactly as the samplesheet does: master_species first, then the NCBI
+taxdump when --taxdump-dir is given.
+"""
+import argparse
 import sys
 
-def load_db_config(config_file):
-    config = configparser.ConfigParser()
-    config.read(config_file)
+# Sibling import: Nextflow puts bin/ on PATH, so this resolves via sys.path[0].
+from create_samplesheet import build_resolver, load_db_config, resolve_species_info
 
-    return {
-        'dbname': config.get('postgres', 'dbname'),
-        'user': config.get('postgres', 'user'),
-        'password': config.get('postgres', 'password'),
-        'host': config.get('postgres', 'host'),
-        'port': config.getint('postgres', 'port')
-    }
 
-def get_species_info(db_params, og_id):
-    query = """
-        SELECT s.nominal_species_id, sp.ncbi_taxon_id, sp.class
-        FROM sample s
-        JOIN species sp ON s.nominal_species_id = sp.species
-        WHERE s.og_id = %s
-    """
-    try:
-        conn = psycopg2.connect(**db_params)
-        with conn.cursor() as cur:
-            cur.execute(query, (og_id,))
-            result = cur.fetchone()
-            if result:
-                nominal_species_id, taxon_id, tax_class = result
-                print("og_id,nominal_species_id,taxon_id,class")
-                print(f"{og_id},{nominal_species_id},{taxon_id},{tax_class}")
-            else:
-                print(f"[WARN] No matching species data found for OG ID: {og_id}")
-    except Exception as e:
-        print(f"[ERROR] Database query failed: {e}")
-    finally:
-        if conn:
-            conn.close()
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
+    parser.add_argument("config_file", help="Path to the postgres config file.")
+    parser.add_argument("og_id", help="Sample OG ID, e.g. OG1323.")
+    parser.add_argument("--taxdump-dir", default=None,
+                        help="NCBI taxdump directory (nodes.dmp/names.dmp).")
+    args = parser.parse_args()
+
+    db_params = load_db_config(args.config_file)
+    resolver = build_resolver(args.taxdump_dir)
+    nominal_species_id, taxon_id, tax_class, source, _level, _rank = \
+        resolve_species_info(db_params, args.og_id, resolver)
+
+    if source == 'unresolved':
+        # The caller treats empty output as 'unknown' and warns.
+        print(f"[WARN] No matching species data found for OG ID: {args.og_id}",
+              file=sys.stderr)
+        return 0
+    print("og_id,nominal_species_id,taxon_id,class")
+    print(f"{args.og_id},{nominal_species_id},{taxon_id},{tax_class}")
+    return 0
+
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("Usage:\n  python lookup_species_info.py <db.cfg> <OG_ID>")
-        sys.exit(1)
-
-    config_file = sys.argv[1]
-    og_id = sys.argv[2]
-
-    db_params = load_db_config(config_file)
-    get_species_info(db_params, og_id)
+    sys.exit(main())

@@ -24,9 +24,9 @@ process CREATE_SAMPLESHEET {
     // Turn the Groovy list into a valid Python literal string
     // e.g. ['OG1323', ['/path/R1', '/path/R2'], 'OG1336', ...]
     def reads_literal = reads_list.inspect()
-    // The curated species table only holds taxa someone has loaded, and the
-    // invertebrate runs draw from most of Metazoa. Without the taxdump fallback
-    // every uncurated sample aborts the run at this step.
+    // master_species carries no invertebrates, and the invertebrate runs draw
+    // from most of Metazoa. Without the taxdump every such sample aborts the run
+    // at this step, and a species missing from the table takes a congener's taxid.
     def taxdump_arg = taxdump ? "--taxdump-dir ${taxdump}" : ''
 
     """

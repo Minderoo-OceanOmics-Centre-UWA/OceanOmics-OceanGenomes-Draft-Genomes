@@ -42,7 +42,7 @@ workflow PREPARE_SAMPLESHEET {
         } else {
             log.info "Creating new samplesheet..."
 
-            // The NCBI taxdump backs up the curated species table when it has no
+            // The NCBI taxdump backs up master_species when it has no exact
             // row for a sample's nominal name. storeDir makes this a cache hit
             // whenever a mitogenome run has already pulled the same dump.
             def taxdump_ch = Channel.value([])
@@ -51,7 +51,7 @@ workflow PREPARE_SAMPLESHEET {
                 taxdump_ch = DOWNLOAD_TAXONKIT_DB.out.db_files
             }
             else {
-                log.warn "No --taxonkit_db_dir set: taxon_id/class come from the species table only, so any sample it does not carry will abort the run."
+                log.warn "No --taxonkit_db_dir set: taxon_id/class come from master_species only, so any sample it does not carry will abort the run and genus-level matches keep a congener's taxon_id."
             }
 
             CREATE_SAMPLESHEET(
