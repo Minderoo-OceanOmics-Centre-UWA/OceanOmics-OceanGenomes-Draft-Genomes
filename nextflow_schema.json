@@ -332,6 +332,12 @@
                     "type": "string",
                     "description": "Pooled reads directory. Not read by the pipeline; skipped downloads use precomputed_download_reads_results."
                 },
+                "bs_staging_dir": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "hidden": true,
+                    "description": "Where BASESPACE downloads lanes before moving them into the task. Kept if the task fails so retries and -resume carry on from what is already downloaded. Defaults to <outdir>/basespace_staging/<run>. Delete it to force a fresh download."
+                },
                 "interleave": {
                     "type": "boolean",
                     "default": false,
