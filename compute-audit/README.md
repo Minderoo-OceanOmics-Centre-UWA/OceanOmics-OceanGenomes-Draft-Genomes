@@ -33,7 +33,12 @@ Outputs, written next to `output_csv`:
 | `<output_csv basename>.report.txt` | readable summary |
 | `cost_per_sample.csv` | SU per sample: direct SU plus a share of run-level overhead |
 
-Nextflow must be loadable (`module load nextflow/25.04.6`) and `sacct` available.
+Nextflow must be loadable and `sacct` available. On Setonix load the pinned environment first:
+
+```bash
+module load pawseyenv/2025.08
+module load gcc-native/13.2 nextflow/25.04.6
+```
 
 ## How the pipeline uses it
 

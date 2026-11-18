@@ -81,10 +81,11 @@ decontaminated assembly. Everything else describes it or the reads it was built 
 <summary>Output files</summary>
 
 - `samplesheet/`
-  - `<RUN>_samplesheet.csv`: the samplesheet the run used, built from the downloaded reads and the
-    `sample`/`species` tables.
-  - `taxonomy_resolution.tsv`: where each sample's `taxon_id` and `class` came from (`db`,
-    `db+taxdump`, `taxdump`, `unresolved`).
+  - `<RUN>_samplesheet.csv`: the samplesheet the run used, built from the downloaded reads, the
+    `sample` and `master_species` tables and the NCBI taxdump.
+  - `taxonomy_resolution.tsv`: where each sample's `taxon_id` and `class` came from (`source`:
+    `db`, `db+taxdump`, `taxdump`, `unresolved`), with the `master_species` `match_level` and the
+    `taxdump_rank` used. See [usage: where taxonomy comes from](usage.md#where-taxonomy-comes-from).
 - `download/taxonkit_dbs/`: the NCBI taxdump, cached with `storeDir`. It lands here only when
   `--taxonkit_db_dir` is the outdir; the template points it at `/scratch/pawsey1348/$USER`, so it
   is normally shared across runs and not under the outdir at all.
@@ -362,6 +363,8 @@ kraken2 retention, coverage verdict and genome size recheck sections, and softwa
 
 - `push/<OG>.{fastp,assembly,decontamination,busco,merqury,gfastats}.upload.txt`: one receipt per
   metric family per sample, recording what was written to the OceanOmics database.
+- `push/<OG>.kmer_depth.upload.txt`: `-entry DEPTH_ONLY` only, in place of the families above; the
+  read depth and host partition columns it wrote.
 
 </details>
 
@@ -405,7 +408,7 @@ draft run's fastp step has finished.
 
 ## What gets backed up
 
-The final backup ([internal SOP section 7](internal_sop.md#7-final-genome-backup)) copies a subset of
+The final backup ([internal SOP section 8](internal_sop.md#8-final-genome-backup)) copies a subset of
 each `draftgenomes/<OG>/` to S3 (`fastp/*.fastq.gz`, `fastp/*fastp.json`, `assemblies/genome/*.fna`,
 `multiqc/*multiqc_report.html`), archives each `.meryl` directory, then **moves** the `draftgenomes/`
 tree, except the `fastp/` folders, to Acacia. After it completes only `draftgenomes/<OG>/fastp/` is

@@ -11,7 +11,7 @@ python3 -m unittest discover -s tests -p "test_*.py"
 
 | File | Covers |
 | --- | --- |
-| `test_create_samplesheet_taxonomy.py` | `create_samplesheet.py` / `taxdump_lineage.py`: taxonomy from the `species` table with the NCBI taxdump fallback, and the `unresolved` abort |
+| `test_create_samplesheet_taxonomy.py` | `create_samplesheet.py` / `taxdump_lineage.py`: taxonomy from `master_species` with the NCBI taxdump fallback, and the `unresolved` abort |
 | `test_genomescope_reliability.py` | `genomescope_reliability.py`: the GenomeScope reliability gate, on real NOVA_260909_LA fixtures |
 | `test_kmer_depth_lambda.py` | `kmer_depth_lambda.py`: coverage measured from BUSCO read depth and the host depth partition |
 | `test_megahit_checkpoint_key.py` | `megahit_checkpoint_key.sh` and the MEGAHIT checkpoint decisions |

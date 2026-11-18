@@ -16,10 +16,12 @@ downloads and caches (modules/local/download_taxonkit_db).
 Lookup is by scientific name, so merged.dmp (old taxid -> new taxid) is not
 consulted: a retired taxid is only reachable by ID, never by name.
 
-This file is kept byte-identical between the mitogenome and draft-genomes
-pipelines. The two behaviours the draft-genomes samplesheet needs and the
-mitogenome one must not have are constructor flags defaulting to off:
-`index_all_ranks` and `class_falls_back_to_phylum` -- see their docstrings.
+This started as a copy of the mitogenome pipeline's bin/taxdump_lineage.py and
+has since diverged from it on purpose; the two are not kept in sync. This copy
+adds `index_all_ranks`, `class_falls_back_to_phylum` (see their docstrings) and
+`matched_taxid`. The mitogenome copy instead adds ancestry checks, NCBI
+mitochondrial genetic codes, animal-homonym narrowing and near-miss suggestions,
+none of which this pipeline needs. Change each on its own terms.
 """
 import os
 import sys
@@ -67,8 +69,8 @@ class TaxdumpLineage:
     class_falls_back_to_phylum
         NCBI leaves the class rank empty for a number of invertebrate lineages.
         True reports the phylum in the 'class' key when no class node exists on
-        the lineage, matching what scripts/taxonomy/load_taxonomy.py already
-        writes into `species.class` so the two agree. 'phylum' stays in the
+        the lineage, so the sample still gets a class to route on (it falls
+        through to the metazoa BUSCO lineage). 'phylum' stays in the
         returned dict either way, so a caller can tell the two apart.
 
         Leave it off for any caller that routes on the class being a real class

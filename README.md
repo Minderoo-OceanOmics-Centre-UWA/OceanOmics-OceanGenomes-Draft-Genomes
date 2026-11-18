@@ -71,7 +71,6 @@ Supporting tools in this repository:
 | --- | --- |
 | [`scripts/backup_scripts/`](scripts/backup_scripts/README.md) | Raw and final backups to S3 and Acacia, and the output file check |
 | [`compute-audit/`](compute-audit/README.md) | Per-run and per-sample Slurm SU accounting |
-| [`scripts/taxonomy/`](scripts/taxonomy/README.md) | Bulk-load NCBI taxa into the `species` table |
 | [`bin/backfill_draft_genome_stats.py`](docs/usage.md#backfilling-database-statistics-from-acacia) | Backfill database statistics from archived runs |
 | [`tests/`](tests/README.md) | Unit tests for the Python helpers in `bin/` |
 

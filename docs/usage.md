@@ -11,7 +11,8 @@ The pipeline has two entry points:
 
 - **Download from Illumina BaseSpace**: provide `--run` and a BaseSpace CLI config (`--bs_config`).
   The workflow pulls every dataset for that run, merges lanes, re-pairs reads, and builds a
-  samplesheet from the `sample` and `species` tables in the database (`--sql_config`).
+  samplesheet from the `sample` and `master_species` tables in the database (`--sql_config`), with
+  the NCBI taxdump for taxa `master_species` does not carry.
 - **Use existing FASTQs**: provide `--input` with a samplesheet and set `--skip_download_reads true`.
 
 ## Standard OceanGenomes run on Pawsey
@@ -28,7 +29,8 @@ bash "nextflow_run_${RUN}.sh"
 
 The launcher:
 
-- loads `nextflow/25.04.6` and `singularity/4.1.0-nompi`;
+- loads `pawseyenv/2025.08`, then `gcc-native/13.2`, `nextflow/25.04.6` and `singularity/4.1.0-nompi`
+  (Setonix's default `pawseyenv/2026.11` no longer has these versions);
 - creates the outdir `/scratch/pawsey1348/$USER/$RUN`, copies `scripts/backup_scripts` into it and
   stamps `RUN` into the copied `backup_scripts/configfile.txt`;
 - changes into the outdir and launches from there, so several runs can share one checkout. Work files
@@ -101,13 +103,17 @@ Rows are tested top to bottom:
 | `class` | Database parameter |
 | --- | --- |
 | `Actinopteri`, `Actinopterygii`, `Teleostei` | `--busco_acti_db` |
-| `Chondrichthyes`, `Mammalia`, `Aves`, `Reptilia`, `Amphibia`, `Myxini`, `Hyperoartia`, `Coelacanthimorpha`, `Dipneusti`, `Lepidosauria`, `Testudines` | `--busco_vert_db` |
+| `Chondrichthyes`, `Elasmobranchii`, `Holocephali`, `Mammalia`, `Aves`, `Reptilia`, `Crocodylia`, `Amphibia`, `Myxini`, `Hyperoartia`, `Petromyzonti`, `Coelacanthimorpha`, `Coelacanthi`, `Dipneusti`, `Lepidosauria`, `Testudines` | `--busco_vert_db` |
 | `Malacostraca`, `Thecostraca`, `Branchiopoda`, `Copepoda`, `Ostracoda`, `Maxillopoda` | `--busco_crustacea_db` |
 | `Gastropoda`, `Bivalvia`, `Polyplacophora`, `Cephalopoda`, `Scaphopoda`, `Monoplacophora` | `--busco_mollusca_db` |
 | `Anthozoa` | `--busco_anthozoa_db` |
 | `Pycnogonida`, `Merostomata`, `Chilopoda`, `Diplopoda`, `Symphyla`, `Pauropoda` | `--busco_arthropoda_db` |
 | anything else (all other invertebrates) | `--busco_metazoa_db` |
 | `unknown` or empty | run aborts |
+
+The vertebrate list carries both NCBI's class names and `master_species`' own spellings
+(Elasmobranchii/Holocephali for Chondrichthyes, Petromyzonti for Hyperoartia, and so on), since a
+sample's class comes from whichever source resolved it.
 
 The four invertebrate lineages are optional: if one is not set, its classes fall back to metazoa.
 There is no echinoderm or sponge lineage in odb12, so Asteroidea, Ophiuroidea, Demospongiae,
@@ -128,49 +134,45 @@ re-run.
 
 ### Where taxonomy comes from
 
-`taxon_id` and `class` are resolved in two steps, and the per-sample outcome is recorded in
-`taxonomy_resolution.tsv`, next to the samplesheet:
+`taxon_id` and `class` come from two sources: the maintained `master_species` table (read-only to
+this pipeline) and the NCBI taxdump. `nominal_species_id` is matched against `master_species`, its
+synonyms included, both as written and cleaned (so `Squalus notocaudatus?`, `Gobiidae spp.` and
+`Cynoglossidae (Family)` still match exactly). How far the match is trusted depends on its level:
+
+- **Exact species or synonym**: the table supplies both `class` and `taxon_id`.
+- **Genus, family or order**: the table supplies `class`, but its taxid belongs to some other
+  species in the group, so `taxon_id` comes from the taxdump's node for the sample's own name. The
+  table's taxid is used only when no taxdump is given.
+- **Fuzzy family or order**: a last resort, used only when the taxdump has nothing.
+- **No match**: everything from the taxdump. This is the normal case for invertebrates, which
+  `master_species` does not carry.
+
+The per-sample outcome is recorded in `taxonomy_resolution.tsv`, next to the samplesheet. `source`
+is one of:
 
 | `source` | Meaning |
 | --- | --- |
-| `db` | the curated `species` table had the answer |
-| `db+taxdump` | the table had part of it, the taxdump filled the rest |
-| `taxdump` | the table had no row; resolved entirely from NCBI |
+| `db` | `master_species` had the answer on its own |
+| `db+taxdump` | `master_species` matched, and the taxdump supplied the taxid or the class |
+| `taxdump` | no usable `master_species` match; resolved entirely from NCBI |
 | `unresolved` | neither source knew the name; the run aborts on these |
 
-The curated table is authoritative and always tried first. It only holds taxa someone has loaded, so
-pass `--taxonkit_db_dir <dir>` to enable the NCBI taxdump fallback. The dump is downloaded once and
-cached there with `storeDir`; point it at the same directory the mitogenome pipeline uses and the two
-share one copy (the template uses `/scratch/pawsey1348/$USER`). Without the flag, any sample the
-`species` table does not carry aborts the run.
+`match_level` gives the `master_species` tier (empty for none) and `taxdump_rank` the rank of the
+taxdump node used, so every sample that leaned on a group-level or fuzzy match is visible.
 
-The fallback matches `nominal_species_id` against NCBI scientific names at any rank within Metazoa,
-so genus, family, order and class names all resolve, as do the `Asteroidea (Class)` style values the
-collection records. Where NCBI has no class rank for a lineage (e.g. Porifera), the phylum is used as
-the class, matching what `scripts/taxonomy/load_taxonomy.py` writes into `species.class`.
+Pass `--taxonkit_db_dir <dir>` to enable the taxdump. The dump is downloaded once and cached there
+with `storeDir`; point it at the same directory the mitogenome pipeline uses and the two share one
+copy (the template uses `/scratch/pawsey1348/$USER`). Without it, any sample `master_species` does
+not carry aborts the run, which includes every invertebrate.
+
+The taxdump matches the cleaned `nominal_species_id` against NCBI scientific names at any rank
+within Metazoa, so genus, family, order and class names all resolve, as do the `Asteroidea (Class)`
+style values the collection records. Where NCBI has no class rank for a lineage (e.g. Porifera), the
+phylum is used as the class, which routes to the metazoa BUSCO database.
 
 It cannot rescue a name that is not a taxon at all: a misspelling (`Actinaria` for `Actiniaria`) or a
 placeholder (`Larval fish`). Those are listed by the failing step and need the `nominal_species_id`
 corrected in the `sample` table.
-
-### Loading taxonomy for new clades
-
-Use this when the name is correct and you want it curated permanently, or when running without
-`--taxonkit_db_dir`. [`scripts/taxonomy/load_taxonomy.py`](../scripts/taxonomy/load_taxonomy.py)
-bulk-loads NCBI species-rank taxa into the `species` table from the NCBI `new_taxdump`:
-
-```bash
-# dry-run: writes a CSV preview, touches nothing
-python3 scripts/taxonomy/load_taxonomy.py --phylum Mollusca,Echinodermata,Arthropoda,Porifera
-
-# after inspecting the preview
-python3 scripts/taxonomy/load_taxonomy.py --phylum Mollusca,Echinodermata --apply ~/postgresql_details/oceanomics.cfg
-```
-
-Use `--phylum` rather than `--class` for invertebrates: NCBI leaves the class column empty for many
-invertebrate lineages, and a class-only load silently misses them. Where a matched row has no NCBI
-class, the phylum name is written into `species.class`, which routes to the metazoa BUSCO database.
-Existing rows are never modified (`ON CONFLICT (species) DO NOTHING`).
 
 ### Reviewing the samplesheet before assembly
 
@@ -309,8 +311,7 @@ An empty glob logs a warning rather than failing, so check the log when skipping
 
 `--report_subdir <name>` publishes the run-level aggregates (`multiqc/`, `coverage_summary/` and
 `pipeline_info/software_versions.yml`) under a subdirectory. Use it when launches that each cover
-only some samples share an outdir, as the tiered re-runs in
-[`scripts/rerun_NOVA_260909_LA`](../scripts/rerun_NOVA_260909_LA/README.md) do; otherwise each launch
+only some samples share an outdir (for example a re-run split into batches); otherwise each launch
 overwrites the last one's partial report.
 
 ## Mitogenome hand-off

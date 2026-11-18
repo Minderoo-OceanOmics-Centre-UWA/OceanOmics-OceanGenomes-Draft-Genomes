@@ -42,7 +42,8 @@ sed -i "s/^RUN=.*/RUN=${RUN}/" "nextflow_run_${RUN}.sh"
 
 Review `nextflow_run_${RUN}.sh` before starting. It will:
 
-- load the Nextflow and Singularity modules
+- load `pawseyenv/2025.08` and the pinned Nextflow and Singularity modules (Setonix's default
+  `pawseyenv/2026.11` no longer has them, so do not drop that line)
 - create the run directory `/scratch/pawsey1348/$USER/$RUN`
 - copy `scripts/backup_scripts` into it and set `RUN` in the copied `backup_scripts/configfile.txt`
 - change into the run directory and launch from there, with work files under

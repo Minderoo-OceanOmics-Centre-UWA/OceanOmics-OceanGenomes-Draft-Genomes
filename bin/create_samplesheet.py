@@ -10,8 +10,8 @@ import sys
 import psycopg2
 
 # Sibling import: Nextflow bind-mounts bin/ into the task container and puts it
-# on PATH, so this resolves via sys.path[0]. Kept byte-identical to the copy in
-# the mitogenome pipeline.
+# on PATH, so this resolves via sys.path[0]. It started as the mitogenome
+# pipeline's copy but has diverged on purpose; see its module docstring.
 from taxdump_lineage import TaxdumpLineage
 
 def load_db_config(config_file):
@@ -321,8 +321,8 @@ def build_resolver(taxdump_dir):
     sample. index_all_ranks is on because our nominal names sit at whatever rank
     the collection could identify -- 'Caridea' is an infraorder, which the
     default five-rank index does not hold at all. class_falls_back_to_phylum is
-    on to match what scripts/taxonomy/load_taxonomy.py writes into
-    `species.class` for lineages where NCBI has no class rank.
+    on so lineages where NCBI has no class rank (e.g. Porifera) still get a class
+    instead of aborting the run.
     """
     if not taxdump_dir:
         return None

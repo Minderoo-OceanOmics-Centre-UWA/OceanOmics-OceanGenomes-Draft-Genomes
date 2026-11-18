@@ -10,5 +10,4 @@ Elsewhere in the repository:
 
 - [`scripts/backup_scripts/README.md`](../scripts/backup_scripts/README.md): raw and final backups and the output file check.
 - [`compute-audit/README.md`](../compute-audit/README.md): Slurm SU accounting per run and per sample.
-- [`scripts/taxonomy/README.md`](../scripts/taxonomy/README.md): loading NCBI taxa into the `species` table.
 - [`tests/README.md`](../tests/README.md): running the unit tests.
