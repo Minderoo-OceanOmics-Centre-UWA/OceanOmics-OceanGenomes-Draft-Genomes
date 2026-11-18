@@ -3,9 +3,16 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v1.2.0 - 2026-11-13
 
-Generalised from "fish + corals" to all invertebrates.
+All invertebrates, kraken2 decontamination, a GenomeScope reliability gate checked against read
+depth and the assembly, depth-only and genome-size-only entries, and results written to the Phase R
+tables.
+
+Upgrading from v1.1.0: launchers must load `pawseyenv/2025.08` (see `nextflow_run_template.sh`);
+uploads need the Phase R tables and genomes_db_review migration 067; samples outside fish and the
+listed vertebrate classes go to a crustacea, mollusca, anthozoa or arthropoda lineage where one is
+set, and otherwise to metazoa (v1.1.0 sent them to vertebrata); a sample with no class now stops.
 
 ### `Added`
 
@@ -176,24 +183,13 @@ Generalised from "fish + corals" to all invertebrates.
   It is a **lower bound** in both directions and is described as one everywhere it
   surfaces: a symbiont sitting at the host's own depth counts as host, and a high-copy
   host repeat counts as symbiont.
-- `scripts/rerun_NOVA_260909_LA/95_depth_lambda.sh` and `94_genomescope_l_sweep.sh`, the
-  offline investigations those two modules came out of.
-- `scripts/rerun_NOVA_260909_LA/96_gate_dryrun.sh` replays the gate over every published
-  sample in seconds, so a threshold change can be evaluated against a whole run without
-  re-running it. `97_genomescope_control.sh` refits GenomeScope from existing histograms
-  and is the GenomeScope half of the tier-3 regression control, which
-  `tier3_fish_regression.sh` cannot provide because it skips assembly.
-  `98_genomescope_m_sweep.sh` sweeps `--max_kmercov` over existing histograms.
-- `scripts/rerun_NOVA_260909_LA/`: tiered re-run launchers, per-tier samplesheets, a
-  baseline snapshot script and a before/after comparison for remediating that run.
 
 - NCBI taxdump fallback for samplesheet taxonomy. `bin/create_samplesheet.py` now resolves a
-  sample's `taxon_id` and `class` from the NCBI taxdump when the curated `species` table has
-  no row for its `nominal_species_id`, via a new `bin/taxdump_lineage.py` (kept
-  byte-identical to the mitogenome pipeline's copy). Enabled with the new
-  `--taxonkit_db_dir` parameter, whose `storeDir` cache is shared with the mitogenome
-  pipeline; without it the step behaves exactly as before. The curated table stays
-  authoritative and is only topped up where it is blank.
+  sample's `taxon_id` and `class` from the NCBI taxdump when the database has no usable row
+  for its `nominal_species_id`, via a new `bin/taxdump_lineage.py` (started from the
+  mitogenome pipeline's copy, now deliberately separate from it). Enabled with the new `--taxonkit_db_dir` parameter, whose
+  `storeDir` cache is shared with the mitogenome pipeline; without it the step behaves exactly
+  as before. See the `master_species` entry under Changed for how the two sources combine.
 - `taxonomy_resolution.tsv`, published alongside the samplesheet, recording per-sample
   taxonomy provenance (`db`, `db+taxdump`, `taxdump`, `unresolved`). Without it a
   taxdump-derived class is indistinguishable from a curated one. Written on the failure path
@@ -208,6 +204,27 @@ Generalised from "fish + corals" to all invertebrates.
 
 ### `Changed`
 
+- **Taxonomy resolves from `master_species`.** `create_samplesheet.py` reads the maintained
+  `master_species` table (read-only), including its synonym column, instead of `species`, and
+  matches the cleaned name alongside the raw one, so `Squalus notocaudatus?`, `Gobiidae spp.` and
+  `Cynoglossidae (Family)` hit exact tiers. Only an exact species or synonym hit supplies a taxid;
+  genus, family and order hits keep the curated class but take the NCBI taxdump's taxid for the
+  sample's own name. `taxonomy_resolution.tsv` gains `match_level` and `taxdump_rank`, and
+  `bin/taxon_id.py` uses the same resolver. Over every sample in the live database: no class
+  changed, 583 taxids improved, and nine samples (eight corals NCBI does not recognise, and OG539,
+  a genus/subgenus homonym) now stop at `validateTaxonomy`.
+- **Draft-genome results are written to the Phase R tables.** `upsert_record()` writes
+  `draft_genome`, then the family's own table (`draft_fastp`, `draft_genomescope`, `draft_tiara`,
+  `draft_contamination`, `draft_busco`, `draft_merqury`, `draft_gfastats`), and links the draft
+  to its Illumina DNA library at the fastp step. A draft whose only sequencing is Hi-C or RNA is
+  rejected. `num_contigs` is stored as `num_contigs_lt_500bp`. Reads still go through
+  `draft_genomes`.
+- **Launchers and tasks load `pawseyenv/2025.08`.** Setonix's default moved to
+  `pawseyenv/2026.11`, where `nextflow/25.04.6` and `singularity/4.1.0-nompi` no longer load. The
+  launchers load `pawseyenv/2025.08` (and `gcc-native/13.2` for Nextflow) first, and
+  `pawsey_profile.config` does the same for every task.
+- `process_high_memory` requests a fixed 512 GB. Doubling on retry asked for 1024 GB, more than a
+  highmem node has, so the retry could never be submitted.
 - Backup scripts point at the `ocom.oceangenomes` S3 bucket. The buckets were recreated with
   dotted names and `ocom-oceangenomes` no longer exists.
 - `nextflow_run_template.sh` sets `MITO_PIPELINE_DIR` to the
@@ -272,7 +289,7 @@ Generalised from "fish + corals" to all invertebrates.
 - GenomeScope2's k-mer coverage ceiling is now the `--genomescope2_m` parameter, still
   defaulting to the previous hard-coded `-m 1000`. It was briefly raised to 10000 on the
   theory that the low ceiling was discarding host k-mer mass; a sweep over 27 histograms
-  (`scripts/rerun_NOVA_260909_LA/98_genomescope_m_sweep.sh`) showed that it is not. The
+  showed that it is not. The
   estimate climbs monotonically with the ceiling and never plateaus (median 1.13x from
   1000 to 10000, up to 1.81x), the whole gain lands in Genome Repeat Length while Genome
   Unique Length does not move, the same change moved repeat length +54.8% on raw reads and
@@ -282,10 +299,31 @@ Generalised from "fish + corals" to all invertebrates.
 - meryl now counts the kraken2-filtered reads rather than the raw fastp reads, so the
   k-mer profile, the GenomeScope estimate and the merqury QV all describe the same
   sequence as the assembly.
-- `scripts/taxonomy/load_anthozoa_taxonomy.py` renamed to `scripts/taxonomy/load_taxonomy.py`.
+
+### `Removed`
+
+- `scripts/taxonomy/load_taxonomy.py` (added in v1.1.0 as `load_anthozoa_taxonomy.py`). It
+  bulk-loaded NCBI taxa into the `species` table, which the pipeline no longer reads: taxonomy
+  now resolves from `master_species` and the NCBI taxdump (`--taxonkit_db_dir`).
 
 ### `Fixed`
 
+- **A species missing from the table took a congener's taxid.** The lookup ranked a genus-only
+  match above everything but an exact species hit, so the sample took an arbitrary congener's
+  row, reported as `source=db`, and that taxid went to FCS-GX without the taxdump being asked.
+  352 samples had a congener's taxid; they now get the real genus.
+- **Sharks, lampreys, coelacanths and crocodiles were scored against metazoa.** `master_species`
+  spells these classes Elasmobranchii, Holocephali, Petromyzonti, Coelacanthi and Crocodylia, and
+  `BUSCO_VERT_CLASSES` only carried NCBI's names, so once metazoa became the default they fell
+  through to it. No shark BUSCO has been computed since that change, so no result needs
+  re-scoring. The no-class abort now points at fixing `nominal_species_id`.
+- **A run hung when Slurm rejected submissions.** NOVA_260925_LA queued one FCSGX_RUNGX highmem
+  job per sample (193), past the 96-job per-user highmem cap, and `sbatch` rejected 50 with
+  `AssocMaxSubmitJobLimit`. A rejected submission has no exit status, so the errorStrategy
+  ignored it, which left FCSGX_RUNGX's output channel open and every downstream join waiting.
+  FCSGX_RUNGX now has `maxForks = 24`; `executor.retry` resubmits on `AssocMaxSubmitJobLimit` and
+  controller timeouts with backoff; both errorStrategy closures retry a submit failure instead of
+  ignoring it (FCSGX_RUNGX up to 10 times, resource-kill retries still capped at 2).
 - **Depth-only seqkit stats were published as `null.seqkit_stats.tsv`.** The depth-only meta had no
   `assembly_prefix`, which names `SEQKIT_STATS`' output. No values were affected: each draft published
   into its own directory and no OG had two drafts in the run.
@@ -382,8 +420,7 @@ Generalised from "fish + corals" to all invertebrates.
   input symlink and overwrote `CALCULATE_SEQUENCING_COVERAGE`'s own work-directory copy,
   which is the only reason four samples published a correct summary despite failing. The
   provisional summary is now staged under `provisional/`, so the output name is free and the
-  write cannot reach upstream. `scripts/rerun_NOVA_260909_LA/93_clear_stale_provisional_summaries.sh`
-  clears the 64 cached summaries the old behaviour overwrote.
+  write cannot reach upstream.
 - **No assembly row reached the database once `RECHECK_GENOME_SIZE` was in the graph.**
   `UPLOAD_RESULTS` joined the GenomeScope summary to the coverage summary with `by: 0`,
   which compares whole meta maps. The two channels sit on opposite sides of
@@ -454,11 +491,6 @@ Generalised from "fish + corals" to all invertebrates.
 - Degeneracy was detected as `model_fit_min == model_fit_max`, which stopped firing for
   OG2983 the moment `-m` changed, letting a 10.9 Mb "genome" at `kmercov` 569 and `bias`
   37 be graded EXCELLENT. It is now detected from the model parameters themselves.
-- `scripts/rerun_NOVA_260909_LA/99_compare_to_baseline.sh` reported the lower Model Fit
-  bound (the one that moves with `-m`) and silently printed the lower size bound for a
-  diverged fit. It now reports the upper fit, shows `NA` for a non-finite bound, and adds
-  Genome Unique Length -- without which a size estimate inflating purely in its repeat
-  component looks like a size estimate improving.
 
 - `MEGAHIT` treated a checkpoint as complete on a `done` marker *or* a non-empty contigs
   file. A checkpoint with `done` but a missing or truncated contigs file surfaced several
@@ -525,7 +557,7 @@ Generalised from "fish + corals" to all invertebrates.
 - `docs/internal_sop.md`: current paths, the `--skip_bs_download` typo, the mitogenome step, and
   that the Acacia move leaves `fastp/` on scratch.
 - README rewritten for the current pipeline; new READMEs for `compute-audit/`,
-  `scripts/backup_scripts/`, `scripts/taxonomy/` and `tests/`.
+  `scripts/backup_scripts/` and `tests/`.
 - CITATIONS: added Kraken 2, KrakenTools, SeqKit and NCBI Taxonomy; corrected the gfastats
   reference, which had the wrong authors and DOI.
 - `nextflow_schema.json`: declared `interleave`; `tempdir` and `pooled` described as unused.
