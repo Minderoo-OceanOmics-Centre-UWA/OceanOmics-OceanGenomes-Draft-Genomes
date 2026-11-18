@@ -1,5 +1,5 @@
 process CREATE_SAMPLESHEET {
-    tag "$meta"
+    tag "$params.run"
     label 'process_low'
     
     container "${ workflow.containerEngine == 'singularity' && !task.ext.singularity_pull_docker_container ?
