@@ -181,7 +181,13 @@ def _float(value: Any, default: Optional[float] = None) -> Optional[float]:
 
 def ids_from_dot_name(value: PathLike) -> tuple[Optional[str], Optional[str]]:
     parts = os.path.basename(str(value)).split(".")
-    return (parts[0], parts[2].split("_", 1)[0]) if len(parts) >= 3 else (None, None)
+    if len(parts) < 3:
+        return (None, None)
+    # The date ends at "_" (OG1.ilmn.250101_genomescope2) or, in runs before 250606, at "-"
+    # (name prefix = OG481.ilmn.230419-genomescope); 240313 runs carry the run name instead
+    # (OG103.ilmn.NOVA_240313_LA-genomescope).
+    run = re.match(r"[A-Z]+_(\d{6})(?:_|-|$)", parts[2])
+    return (parts[0], run.group(1) if run else re.split(r"[_-]", parts[2], maxsplit=1)[0])
 
 
 def _record(og_id: Any, seq_date: Any, values: dict[str, Any]) -> dict[str, Any]:

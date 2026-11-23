@@ -528,3 +528,165 @@ class KmerDepthTests(unittest.TestCase):
         self.assertEqual(assembly["busco_regions"], 321)
         # The summary's value stands; the measurement only fills what is empty.
         self.assertAlmostEqual(assembly["busco_read_depth"], 11.5)
+
+
+class FamilyFillTests(unittest.TestCase):
+    """--families: fill the families a draft lacks from an archive that may not hold them all."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        make_archive(self.root)
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_busco_in_a_lineage_directory_is_found(self):
+        # Runs before 250606 publish to busco_<tag>/, e.g. busco_acti/...fna.busco.acti.short_summary.json.
+        busco_dir = self.root / "OG1/assemblies/genome/busco"
+        source = next(busco_dir.glob("*.json"))
+        moved = write(self.root / "OG1/assemblies/genome/busco_acti" /
+                      "OG1.ilmn.250101.v129mh.fna.busco.acti.short_summary.json",
+                      source.read_text(encoding="utf-8"))
+        source.unlink()
+        sample = backfill.discover_sample(self.root, "OG1", "250101", busco_lineage="acti")
+        self.assertTrue(sample.valid, sample.errors)
+        self.assertEqual(sample.paths["busco"], moved)
+
+    def test_families_need_only_their_own_files(self):
+        next((self.root / "OG1/assemblies/genome/gfastats").glob("*")).unlink()
+        next((self.root / "OG1/fastp").glob("*.json")).unlink()
+        self.assertFalse(backfill.discover_sample(self.root, "OG1", "250101").valid)
+        sample = backfill.discover_sample(self.root, "OG1", "250101", families=("busco", "merqury"))
+        self.assertTrue(sample.valid, sample.errors)
+        self.assertEqual(list(sample.records), ["busco", "merqury"])
+        self.assertEqual(sample.records["merqury"]["qv"], 30.0)
+
+    def test_unknown_family_is_refused(self):
+        with self.assertRaises(Exception):
+            backfill.parse_families("busco,bogus")
+        self.assertEqual(backfill.parse_families("merqury, busco"), ("merqury", "busco"))
+
+    def _sample(self, families):
+        return backfill.discover_sample(self.root, "OG1", "250101", families=families)
+
+    def _apply(self, sample, before, after):
+        connection = FakeConnection()
+        with mock.patch.object(backfill, "runtime_smoke_check"), \
+             mock.patch.object(backfill, "connect", return_value=connection), \
+             mock.patch.object(backfill, "upsert_record") as upsert, \
+             mock.patch.object(backfill, "fetch_database_record", side_effect=[before, after]):
+            uploads, verification = backfill.apply_samples([sample], Path("config"), fill_only=True)
+        return uploads, verification, upsert, connection
+
+    def test_fill_writes_only_the_absent_family(self):
+        sample = self._sample(("busco", "merqury"))
+        stored_busco = {column: sample.records["busco"].get(column)
+                        for column in stats.FAMILY_COLUMNS["busco"]}
+        before = {**stored_busco, **dict.fromkeys(stats.FAMILY_COLUMNS["merqury"])}
+        after = {**stored_busco, **{column: sample.records["merqury"].get(column)
+                                    for column in stats.FAMILY_COLUMNS["merqury"]}}
+        uploads, verification, upsert, connection = self._apply(sample, before, after)
+        self.assertEqual([call.args[1] for call in upsert.call_args_list], ["merqury"])
+        self.assertEqual(uploads[0]["status"], "COMMITTED")
+        self.assertEqual(connection.commits, 1)
+        self.assertTrue(all(row["status"] == "PASS" for row in verification))
+
+    def test_a_stored_family_that_differs_rolls_back(self):
+        sample = self._sample(("busco", "merqury"))
+        before = {**{column: 1 for column in stats.FAMILY_COLUMNS["busco"]},
+                  **dict.fromkeys(stats.FAMILY_COLUMNS["merqury"])}
+        uploads, verification, upsert, connection = self._apply(sample, before, before)
+        self.assertEqual(uploads[0]["status"], "ROLLED_BACK")
+        self.assertEqual(connection.commits, 0)
+        self.assertIn("differ from the archive", uploads[0]["details"])
+        upsert.assert_not_called()
+        self.assertNotIn("PASS", {row["status"] for row in verification})
+
+    def test_fill_never_creates_a_draft(self):
+        sample = self._sample(("busco",))
+        uploads, _verification, upsert, connection = self._apply(sample, None, None)
+        self.assertEqual(uploads[0]["status"], "ROLLED_BACK")
+        self.assertIn("does not create", uploads[0]["details"])
+        upsert.assert_not_called()
+
+
+class ColumnFillTests(unittest.TestCase):
+    """A fill writes only the columns the database has empty, and never rewrites a stored value."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        make_archive(self.root)
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_old_layout_genomescope_summary_is_found_and_dated(self):
+        # Before 250606: kmers/<key>/<key>-genomescope_summary.txt, name prefix <key>-genomescope.
+        source = next((self.root / "OG1/kmers").glob("*_genomescope/*_summary.txt"))
+        text = source.read_text(encoding="utf-8").replace(
+            "name prefix = OG1.ilmn.250101", "name prefix = OG1.ilmn.250101-genomescope")
+        moved = write(self.root / "OG1/kmers/OG1.ilmn.250101/OG1.ilmn.250101-genomescope_summary.txt", text)
+        source.unlink()
+        sample = backfill.discover_sample(self.root, "OG1", "250101", families=("assembly",))
+        self.assertTrue(sample.valid, sample.errors)
+        self.assertEqual(sample.paths["genomescope"], moved)
+        self.assertEqual(sample.records["assembly"]["seq_date"], "250101")
+
+    def test_dot_name_date_stops_at_a_hyphen(self):
+        self.assertEqual(stats.ids_from_dot_name("OG481.ilmn.230419-genomescope"), ("OG481", "230419"))
+        self.assertEqual(stats.ids_from_dot_name("OG1.ilmn.250101_genomescope2"), ("OG1", "250101"))
+        self.assertEqual(stats.ids_from_dot_name("OG103.ilmn.NOVA_240313_LA-genomescope"), ("OG103", "240313"))
+        self.assertEqual(stats.ids_from_dot_name("OG1.ilmn.NOVA_250101_AD.fastp.json"), ("OG1", "250101"))
+
+    def test_only_empty_columns_are_written(self):
+        record = {"og_id": "OG1", "seq_date": "250101", "genomesize": 1000, "genomesize_min": 999,
+                  "modelfit_allkmers": 98.0}
+        stored = {"genomesize": 1000, "genomesize_min": None, "modelfit_allkmers": None}
+        writes, differs = backfill.fill_plan(record, stored, "assembly")
+        self.assertEqual(differs, [])
+        self.assertEqual(backfill.fill_columns(writes), ["genomesize_min", "modelfit_allkmers"])
+
+    def test_a_stored_value_that_differs_is_reported_not_written(self):
+        record = {"og_id": "OG1", "seq_date": "250101", "genomesize": 1000, "genomesize_min": 999}
+        writes, differs = backfill.fill_plan(record, {"genomesize": 400, "genomesize_min": None}, "assembly")
+        self.assertEqual(len(differs), 1)
+        self.assertIn("genomesize", differs[0])
+
+    def test_a_column_the_archive_lacks_is_left_alone(self):
+        record = {"og_id": "OG1", "seq_date": "250101", "genomesize": 1000, "kmercov": None}
+        writes, differs = backfill.fill_plan(record, {"genomesize": 1000, "kmercov": 12.5}, "assembly")
+        self.assertEqual((backfill.fill_columns(writes), differs), ([], []))
+        self.assertEqual(backfill.verify_fill({"assembly": record}, {"genomesize": 1000, "kmercov": 12.5})[0]["status"], "PASS")
+
+    def test_apply_writes_the_empty_columns_of_a_stored_family(self):
+        sample = backfill.discover_sample(self.root, "OG1", "250101", families=("assembly",))
+        record = sample.records["assembly"]
+        before = {column: (None if column.endswith("_min") or column == "modelfit_allkmers" else record.get(column))
+                  for column in stats.FAMILY_COLUMNS["assembly"]}
+        after = {column: record.get(column) for column in stats.FAMILY_COLUMNS["assembly"]}
+        connection = FakeConnection()
+        with mock.patch.object(backfill, "runtime_smoke_check"), \
+             mock.patch.object(backfill, "connect", return_value=connection), \
+             mock.patch.object(backfill, "upsert_record") as upsert, \
+             mock.patch.object(backfill, "fetch_database_record", side_effect=[before, after]):
+            uploads, verification = backfill.apply_samples([sample], Path("config"), fill_only=True)
+        self.assertEqual(uploads[0]["status"], "COMMITTED", uploads[0]["details"])
+        written = upsert.call_args.args[2]
+        self.assertEqual(sorted(backfill.fill_columns(written)),
+                         sorted(c for c in ("homozygosity_min", "heterozygosity_min", "genomesize_min",
+                                            "repeatsize_min", "uniquesize_min", "modelfit_allkmers")
+                                if record.get(c) is not None))
+        self.assertNotIn("genomesize", written)
+        self.assertTrue(all(row["status"] == "PASS" for row in verification))
+
+
+class StoredPrecisionTests(unittest.TestCase):
+    def test_a_value_stored_at_four_decimals_matches(self):
+        from decimal import Decimal
+        self.assertTrue(backfill.matches_stored(4.9159951078975075, Decimal("4.9160"), "lambda_depth"))
+        self.assertFalse(backfill.matches_stored(4.9171, Decimal("4.9160"), "lambda_depth"))
+        writes, differs = backfill.fill_plan({"og_id": "OG1", "seq_date": "250101", "lambda_depth": 4.91599},
+                                             {"lambda_depth": Decimal("4.9160")}, "assembly")
+        self.assertEqual(differs, [])

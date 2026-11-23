@@ -10,6 +10,7 @@ import json
 import os
 import sys
 from dataclasses import dataclass, field
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -28,19 +29,25 @@ from draft_genome_stats import (
     parse_genomescope,
     parse_gfastats,
     upsert_record,
+    values_equal,
     verify_families,
 )
 
 
 COMPONENTS: dict[str, tuple[str, Callable[[Path], dict[str, Any]]]] = {
     "fastp": ("**/*.fastp.json", parse_fastp),
-    "genomescope": ("kmers/*genomescope/*summary.txt", parse_genomescope),
+    # kmers/<key>.genomescope/<key>_genomescope2_summary.txt since 250606; before that
+    # kmers/<key>/<key>-genomescope_summary.txt, and some 251210 runs a plain summary.txt.
+    # Candidates are matched to the draft by the identity inside the file.
+    "genomescope": ("kmers/*/*summary.txt", parse_genomescope),
     "coverage_summary": ("coverage/*_coverage_summary.json", parse_coverage_summary),
     "kmer_depth": ("coverage/*_kmer_depth.json", parse_kmer_depth),
     "tiara": ("assemblies/genome/tiara/*tiara_filter_summary.txt", lambda path: _parse_decontam_part(path, "tiara")),
     "filter_report": ("assemblies/genome/NCBI/*filter_report.txt", lambda path: _parse_decontam_part(path, "filter")),
     "contigs_lt500": ("assemblies/genome/NCBI/*contig_count_500bp.txt", lambda path: _parse_decontam_part(path, "contigs")),
-    "busco": ("assemblies/genome/busco/*short_summary.json", parse_busco),
+    # Runs before 250606 publish BUSCO to busco_<tag>/ (e.g. busco_acti/) with names like
+    # <prefix>.fna.busco.acti.short_summary.json; later ones to busco/.
+    "busco": ("assemblies/genome/busco*/*short_summary.json", parse_busco),
     "merqury_completeness": ("kmers/*completeness.stats", lambda path: _read_merqury(path, "completeness")),
     "merqury_qv": ("kmers/*.merqury.qv", lambda path: _read_merqury(path, "qv")),
     "gfastats": ("assemblies/genome/gfastats/*assembly_summary*", parse_gfastats),
@@ -68,9 +75,21 @@ OPTIONAL_COLUMNS = {"genome_size_reliable", "genome_size_flags", "kmercov", "lam
                     "host_haploid_size", "partition_confidence",
                     "partition_note", "busco_regions", "busco_read_depth", "genomescope_fit"}
 
+# The components each family is built from. With --families only these are looked for, so a
+# draft whose archive lacks one family (no gfastats before 250606) can still be filled in another.
+FAMILY_COMPONENTS: dict[str, tuple[str, ...]] = {
+    "fastp": ("fastp",),
+    "assembly": ("genomescope", "coverage_summary", "kmer_depth"),
+    "decontamination": ("tiara", "filter_report", "contigs_lt500"),
+    "busco": ("busco",),
+    "merqury": ("merqury_completeness", "merqury_qv"),
+    "gfastats": ("gfastats",),
+}
+
 INVENTORY_FIELDS = ("og_id", "seq_date", *COMPONENTS.keys(), "status", "details")
 UPLOAD_FIELDS = ("og_id", "seq_date", "status", "details")
 VERIFY_FIELDS = ("og_id", "seq_date", "family", "status", "details")
+PLAN_FIELDS = ("og_id", "seq_date", "family", "action", "details")
 
 
 def _parse_decontam_part(path: Path, kind: str) -> dict[str, Any]:
@@ -109,7 +128,21 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
                         help="Directory for inventory, expected, upload and verification reports")
     parser.add_argument("--apply", action="store_true",
                         help="Write validated records to PostgreSQL; omitted means validation only")
+    parser.add_argument("--families", type=parse_families,
+                        help="Comma-separated families to fill (" + ", ".join(FAMILY_COLUMNS) + "). "
+                             "Only their files are required, and a family the database already "
+                             "holds for a draft is verified against the archive, never rewritten. "
+                             "Without --apply, plan.tsv says what would be written (read-only).")
     return parser.parse_args(argv)
+
+
+def parse_families(value: str) -> tuple[str, ...]:
+    families = tuple(dict.fromkeys(item.strip() for item in value.split(",") if item.strip()))
+    unknown = [family for family in families if family not in FAMILY_COLUMNS]
+    if unknown or not families:
+        raise argparse.ArgumentTypeError(f"unknown families: {', '.join(unknown) or 'none given'}; "
+                                         f"choose from {', '.join(FAMILY_COLUMNS)}")
+    return families
 
 
 def busco_lineage_tag(lineage: str) -> str:
@@ -195,42 +228,50 @@ def _select_component(sample: Sample, root: Path, component: str,
 
 def discover_sample(archive_root: Path, og_id: str, seq_date: str,
                     fastp_root: Optional[Path] = None,
-                    busco_lineage: Optional[str] = None) -> Sample:
+                    busco_lineage: Optional[str] = None,
+                    families: Optional[tuple[str, ...]] = None) -> Sample:
     sample = Sample(og_id, seq_date)
     sample_root = archive_root / og_id
     if not sample_root.is_dir():
         sample.errors.append(f"sample directory is missing or unreadable: {sample_root}")
         return sample
-    for component in COMPONENTS:
+    wanted = families or tuple(FAMILY_COLUMNS)
+    components = [component for component in COMPONENTS
+                  if any(component in FAMILY_COMPONENTS[family] for family in wanted)]
+    for component in components:
         component_root = (fastp_root / og_id) if component == "fastp" and fastp_root else sample_root
         _select_component(sample, component_root, component, busco_lineage)
     if not sample.valid:
         return sample
     try:
-        decontamination = parse_decontamination(
-            sample.paths["tiara"], sample.paths["filter_report"], sample.paths["contigs_lt500"]
-        )
-        merqury = {**sample.records["merqury_completeness"],
-                   **{key: value for key, value in sample.records["merqury_qv"].items()
-                      if key not in ("og_id", "seq_date")}}
-        # The GenomeScope numbers and the reliability verdict are the same family, so
-        # they merge into one row rather than fighting over it.
-        assembly = {**sample.records["genomescope"],
-                    **{key: value for key, value in sample.records.get("coverage_summary", {}).items()
-                       if key not in ("og_id", "seq_date")}}
-        # The coverage summary copies its depth fields from *_kmer_depth.json, and older
-        # summaries lack busco_regions, so the measurement fills only what is still empty.
-        for key, value in sample.records.get("kmer_depth", {}).items():
-            if key not in ("og_id", "seq_date") and assembly.get(key) is None:
-                assembly[key] = value
-        families = {
-            "fastp": sample.records["fastp"],
-            "assembly": assembly,
-            "decontamination": decontamination,
-            "busco": sample.records["busco"],
-            "merqury": merqury,
-            "gfastats": sample.records["gfastats"],
-        }
+        built: dict[str, dict[str, Any]] = {}
+        if "fastp" in wanted:
+            built["fastp"] = sample.records["fastp"]
+        if "assembly" in wanted:
+            # The GenomeScope numbers and the reliability verdict are the same family, so
+            # they merge into one row rather than fighting over it.
+            assembly = {**sample.records["genomescope"],
+                        **{key: value for key, value in sample.records.get("coverage_summary", {}).items()
+                           if key not in ("og_id", "seq_date")}}
+            # The coverage summary copies its depth fields from *_kmer_depth.json, and older
+            # summaries lack busco_regions, so the measurement fills only what is still empty.
+            for key, value in sample.records.get("kmer_depth", {}).items():
+                if key not in ("og_id", "seq_date") and assembly.get(key) is None:
+                    assembly[key] = value
+            built["assembly"] = assembly
+        if "decontamination" in wanted:
+            built["decontamination"] = parse_decontamination(
+                sample.paths["tiara"], sample.paths["filter_report"], sample.paths["contigs_lt500"]
+            )
+        if "busco" in wanted:
+            built["busco"] = sample.records["busco"]
+        if "merqury" in wanted:
+            built["merqury"] = {**sample.records["merqury_completeness"],
+                                **{key: value for key, value in sample.records["merqury_qv"].items()
+                                   if key not in ("og_id", "seq_date")}}
+        if "gfastats" in wanted:
+            built["gfastats"] = sample.records["gfastats"]
+        families = {family: built[family] for family in FAMILY_COLUMNS if family in built}
         for family, record in families.items():
             assert_identity(record, og_id, seq_date, family)
             missing = [column for column in FAMILY_COLUMNS[family]
@@ -276,7 +317,91 @@ def runtime_smoke_check() -> None:
         raise RuntimeError("uploader environment is missing required modules: " + ", ".join(missing))
 
 
-def apply_samples(samples: list[Sample], config: Path) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+IDENTITY_KEYS = ("og_id", "seq_date", "mach", "initial")
+
+
+def matches_stored(value: Any, stored: Any, column: str) -> bool:
+    """Equal, allowing for the precision the database stored it at (numeric(10,4) holds
+    lambda_depth 4.9159951... as 4.9160)."""
+    if values_equal(value, stored, column):
+        return True
+    if isinstance(stored, Decimal) and isinstance(value, (int, float, Decimal)):
+        try:
+            return Decimal(str(value)).quantize(stored, rounding=ROUND_HALF_UP) == stored
+        except InvalidOperation:
+            return False
+    return False
+
+
+def fill_plan(record: dict[str, Any], stored: Optional[dict[str, Any]],
+              family: str) -> tuple[dict[str, Any], list[str]]:
+    """The part of a family a fill may write, and how the stored part differs from the archive.
+
+    A fill writes only the columns the database has empty and the archive has a value for. A
+    stored value is never rewritten: it must equal the archive's, or the draft is refused, so a
+    fill cannot mix values from two different runs. A column the archive lacks is left alone.
+    """
+    writes: dict[str, Any] = {key: record[key] for key in IDENTITY_KEYS if key in record}
+    differs: list[str] = []
+    for column in FAMILY_COLUMNS[family]:
+        value = record.get(column)
+        if value is None:
+            continue
+        have = None if stored is None else stored.get(column)
+        if have is None:
+            writes[column] = value
+        elif not matches_stored(value, have, column):
+            differs.append(f"{column}: archive={value!r}, stored={have!r}")
+    return writes, differs
+
+
+def fill_columns(writes: dict[str, Any]) -> list[str]:
+    return [key for key in writes if key not in IDENTITY_KEYS]
+
+
+def verify_fill(expected: dict[str, dict[str, Any]], actual: Optional[dict[str, Any]]) -> list[dict[str, str]]:
+    """After a fill, every column the archive has a value for must hold that value."""
+    results = []
+    for family, record in expected.items():
+        mismatches = [f"{column}: expected={record[column]!r}, actual={None if actual is None else actual.get(column)!r}"
+                      for column in FAMILY_COLUMNS[family]
+                      if record.get(column) is not None
+                      and not matches_stored(record[column], None if actual is None else actual.get(column), column)]
+        results.append({"family": family, "status": "PASS" if not mismatches else "FAIL",
+                        "details": "; ".join(mismatches)})
+    return results
+
+
+def plan_samples(samples: list[Sample], config: Path) -> list[dict[str, str]]:
+    """What a fill-only --apply would do, read in a read-only session."""
+    connection = connect(config)
+    connection.set_session(readonly=True)
+    rows: list[dict[str, str]] = []
+    try:
+        with connection.cursor() as cursor:
+            for sample in samples:
+                actual = fetch_database_record(cursor, sample.og_id, sample.seq_date)
+                for family, record in sample.records.items():
+                    writes, differs = fill_plan(record, actual, family)
+                    columns = fill_columns(writes)
+                    if actual is None:
+                        action, details = "NO_DRAFT_ROW", "not written: the draft is not in the database"
+                    elif differs:
+                        action, details = "PRESENT_DIFFERS", "; ".join(differs)
+                    elif columns:
+                        action, details = "WRITE", ", ".join(columns)
+                    else:
+                        action, details = "PRESENT_IDENTICAL", ""
+                    rows.append({"og_id": sample.og_id, "seq_date": sample.seq_date,
+                                 "family": family, "action": action, "details": details})
+        connection.rollback()
+    finally:
+        connection.close()
+    return rows
+
+
+def apply_samples(samples: list[Sample], config: Path,
+                  fill_only: bool = False) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
     runtime_smoke_check()
     connection = connect(config)
     uploads: list[dict[str, str]] = []
@@ -291,16 +416,36 @@ def apply_samples(samples: list[Sample], config: Path) -> tuple[list[dict[str, s
             sample_verification: list[dict[str, str]] = []
             try:
                 with connection.cursor() as cursor:
-                    for family in FAMILY_COLUMNS:
-                        upsert_record(cursor, family, sample.records[family])
+                    families = [family for family in FAMILY_COLUMNS if family in sample.records]
+                    writes = {family: sample.records[family] for family in families}
+                    if fill_only:
+                        # Only empty columns are written; a stored value that differs from the
+                        # archive refuses the draft; and a fill never creates a draft.
+                        before = fetch_database_record(cursor, sample.og_id, sample.seq_date)
+                        if before is None:
+                            raise RuntimeError("draft is not in the database; a fill does not create one")
+                        writes = {}
+                        for family in families:
+                            partial, differs = fill_plan(sample.records[family], before, family)
+                            if differs:
+                                raise RuntimeError(f"{family}: stored values differ from the archive: "
+                                                   + "; ".join(differs))
+                            if fill_columns(partial):
+                                writes[family] = partial
+                        families = [f"{family} ({len(fill_columns(record))} columns)"
+                                    for family, record in writes.items()]
+                    for family, record in writes.items():
+                        upsert_record(cursor, family, record)
                     actual = fetch_database_record(cursor, sample.og_id, sample.seq_date)
-                    sample_verification = verify_families(sample.records, actual)
+                    sample_verification = (verify_fill if fill_only else verify_families)(sample.records, actual)
                     failures = [row for row in sample_verification if row["status"] != "PASS"]
                     if failures:
                         raise RuntimeError("source-to-database verification failed before commit")
                 connection.commit()
                 uploads.append({"og_id": sample.og_id, "seq_date": sample.seq_date,
-                                "status": "COMMITTED", "details": "all six families verified"})
+                                "status": "COMMITTED",
+                                "details": f"wrote {', '.join(families) or 'nothing'}; "
+                                           f"{len(sample.records)} families verified"})
             except Exception as exc:
                 connection.rollback()
                 uploads.append({"og_id": sample.og_id, "seq_date": sample.seq_date,
@@ -308,7 +453,7 @@ def apply_samples(samples: list[Sample], config: Path) -> tuple[list[dict[str, s
                 if not sample_verification:
                     sample_verification = [{"family": family, "status": "NOT_VERIFIED",
                                             "details": "transaction failed before verification"}
-                                           for family in FAMILY_COLUMNS]
+                                           for family in sample.records or FAMILY_COLUMNS]
             for row in sample_verification:
                 verifications.append({"og_id": sample.og_id, "seq_date": sample.seq_date, **row})
     finally:
@@ -349,14 +494,17 @@ def main(argv: Optional[list[str]] = None) -> int:
         db_params(args.db_config)  # Validate syntax without connecting in validation-only mode.
         targets = read_manifest(args.manifest)
         args.report_dir.mkdir(parents=True, exist_ok=True)
-        samples = [discover_sample(archive_root, og_id, seq_date, fastp_root, lineage)
+        samples = [discover_sample(archive_root, og_id, seq_date, fastp_root, lineage, args.families)
                    for og_id, seq_date, lineage in targets]
         write_validation_reports(args.report_dir, samples)
+        if args.families and not args.apply and all(sample.valid for sample in samples):
+            _write_tsv(args.report_dir / "plan.tsv", PLAN_FIELDS, plan_samples(samples, args.db_config))
         uploads: list[dict[str, str]] = []
         verifications: list[dict[str, str]] = []
         if all(sample.valid for sample in samples) and args.apply:
             try:
-                uploads, verifications = apply_samples(samples, args.db_config)
+                uploads, verifications = apply_samples(samples, args.db_config,
+                                                       fill_only=bool(args.families))
             except Exception as exc:
                 details = f"database/environment preflight failed: {exc}"
                 uploads = [{"og_id": sample.og_id, "seq_date": sample.seq_date,
@@ -365,7 +513,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 verifications = [
                     {"og_id": sample.og_id, "seq_date": sample.seq_date,
                      "family": family, "status": "NOT_VERIFIED", "details": details}
-                    for sample in samples for family in FAMILY_COLUMNS
+                    for sample in samples for family in (args.families or FAMILY_COLUMNS)
                 ]
         _write_tsv(args.report_dir / "upload.tsv", UPLOAD_FIELDS, uploads)
         _write_tsv(args.report_dir / "verification.tsv", VERIFY_FIELDS, verifications)
