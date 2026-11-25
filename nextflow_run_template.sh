@@ -53,10 +53,10 @@ nextflow -log ".nextflow_${RUN}.log" \
     --busco_acti_db "/scratch/references/busco_db/actinopterygii_odb10" \
     --busco_vert_db "/scratch/references/busco_db/vertebrata_odb10" \
     --busco_metazoa_db "/software/projects/pawsey0964/busco_db/metazoa_odb12" \
-    --busco_crustacea_db "/software/projects/pawsey1348/tpeirce/busco_db/busco_downloads/lineages/crustacea_odb12" \
-    --busco_mollusca_db "/software/projects/pawsey1348/tpeirce/busco_db/busco_downloads/lineages/mollusca_odb12" \
-    --busco_anthozoa_db "/software/projects/pawsey1348/tpeirce/busco_db/busco_downloads/lineages/anthozoa_odb12" \
-    --busco_arthropoda_db "/software/projects/pawsey1348/tpeirce/busco_db/busco_downloads/lineages/arthropoda_odb12" \
+    --busco_crustacea_db "/software/projects/pawsey1348/busco_db/lineages/crustacea_odb12" \
+    --busco_mollusca_db "/software/projects/pawsey1348/busco_db/lineages/mollusca_odb12" \
+    --busco_anthozoa_db "/software/projects/pawsey1348/busco_db/lineages/anthozoa_odb12" \
+    --busco_arthropoda_db "/software/projects/pawsey1348/busco_db/lineages/arthropoda_odb12" \
     --tempdir "$BASE/tmp" \
     --refresh-modules \
     --skip_bs_download false \

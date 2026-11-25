@@ -194,7 +194,7 @@ Values used by the template on Setonix:
 | `--kraken2_db` | kraken2 database (`hash.k2d`, `opts.k2d`, `taxo.k2d`) | `/scratch/references/kraken2/pluspfp_20230605` |
 | `--busco_acti_db`, `--busco_vert_db` | fish / other vertebrate lineages | `/scratch/references/busco_db/{actinopterygii,vertebrata}_odb10` |
 | `--busco_metazoa_db` | default invertebrate lineage | `/software/projects/pawsey0964/busco_db/metazoa_odb12` |
-| `--busco_{crustacea,mollusca,anthozoa,arthropoda}_db` | optional invertebrate lineages | `/software/projects/pawsey1348/tpeirce/busco_db/busco_downloads/lineages/*_odb12` |
+| `--busco_{crustacea,mollusca,anthozoa,arthropoda}_db` | optional invertebrate lineages | `/software/projects/pawsey1348/busco_db/lineages/*_odb12` |
 | `--taxonkit_db_dir` | NCBI taxdump cache | `/scratch/pawsey1348/$USER` |
 | `--mitogenome_nfcore_dir` | mitogenome pipeline checkout | `/software/projects/pawsey1348/$USER/repos/Oceanomics-OceanGenomes-Mitogenomes` |
 | `--kvalue` | k for meryl/GenomeScope | `21` |
