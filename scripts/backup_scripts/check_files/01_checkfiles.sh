@@ -8,7 +8,7 @@
 . ../configfile.txt
 
 ## Use this variable to override configfile settings if needed, otherwise comment them out
-# rundir=/scratch/pawsey1348/tpeirce/NOVA_251215_AD/draftgenomes
+# rundir=/scratch/pawsey1348/$USER/NOVA_251215_AD/draftgenomes
 rm -rf FileCheck
 rm -f _FileCheck.tsv
 

@@ -5,7 +5,7 @@
 
 ## Use these variables to override configfile settings if needed, otherwise comment them out
 # RUN=NOVA_260108_AD
-# download=/scratch/pawsey0964/tpeirce/NOVA_260108_AD/basespace/NOVA_260108_AD
+# download=/scratch/pawsey1348/$USER/NOVA_260108_AD/basespace/NOVA_260108_AD
 
 S3=s3://ocom.oceangenomes/illumina-raw
 ## 1. Perform check on local machine 

@@ -14,7 +14,7 @@
 
 # Or overwrite variables here
 # RUN=NOVA_260108_AD2
-# download=/scratch/pawsey0964/tpeirce/NOVA_260108_AD2/basespace/NOVA_260108_AD2
+# download=/scratch/pawsey1348/$USER/NOVA_260108_AD2/basespace/NOVA_260108_AD2
 
 rclone copy $download s3://ocom.oceangenomes/illumina-raw/$RUN  --checksum --progress
 

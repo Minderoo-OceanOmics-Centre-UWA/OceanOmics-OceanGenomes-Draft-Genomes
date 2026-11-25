@@ -5,7 +5,7 @@
 
 ## Use these variables to override configfile settings if needed, otherwise comment them out
 # RUN=NOVA_260108_AD
-# rundir=/scratch/pawsey0964/tpeirce/NOVA_260108_AD/draftgenomes
+# rundir=/scratch/pawsey1348/$USER/NOVA_260108_AD/draftgenomes
 
 S3=s3://ocom.oceangenomes/analysed-data/draft-genomes
 
